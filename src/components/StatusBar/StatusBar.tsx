@@ -77,7 +77,7 @@ export function StatusBar() {
   // 渲染只读选区；getSelection 会提交所见即所得的挂起输入，不能在渲染期调用。
   const selection = editorView?.state.selection.main;
   const hasSelection = Boolean(selection && !selection.empty);
-  const companionEnabled = settings.ai.enabled && settings.ai.auto_suggest;
+  const companionEnabled = (settings.ai.enabled || settings.agent.enabled) && settings.ai.auto_suggest;
   const companionStyleLabel = WRITING_STYLES.find(({ value }) => value === settings.ai.writing_style)?.label || '正式';
   // 视图状态按钮可在「设置 → 编辑器 → 显示」中关闭；关闭后只保留文字标签。
   const showViewStateButton = resolveEditorDisplay(settings.editor).showViewStateButton;
@@ -163,10 +163,14 @@ export function StatusBar() {
 
   const setCompanionEnabled = async (enabled: boolean) => {
     const latestAI = useAppStore.getState().settings.ai;
+    const agentEnabled = useAppStore.getState().settings.agent.enabled;
+    // 本地 Agent 已启用时无需再强行打开 AI 助手（否则会把面板默认切到未配置的 API 页）；
+    // 两个引擎都关着时，开启伴写需顺带开启 AI 助手，否则无人可执行。
     await updateAISettings({
       ...latestAI,
-      enabled: enabled ? true : latestAI.enabled,
+      enabled: enabled && !latestAI.enabled && !agentEnabled ? true : latestAI.enabled,
       auto_suggest: enabled,
+      auto_suggest_user_set: true,
     });
     useAIStore.getState().setStatus('success', enabled ? 'AI 伴写已开启' : 'AI 伴写已关闭');
   };
@@ -320,7 +324,7 @@ export function StatusBar() {
         <button
           type="button"
           className={`status-item status-button status-proofread-trigger${aiStatus === 'proofreading' ? ' is-running' : ''}`}
-          title={`${hasSelection ? '校对选中文字' : '校对全文'}${settings.ai.enabled && settings.ai.proofread_with_ai !== false ? '' : '（Markdown 检查）'}`}
+          title={`${hasSelection ? '校对选中文字' : '校对全文'}${(settings.ai.enabled || settings.agent.enabled) && settings.ai.proofread_with_ai !== false ? '' : '（Markdown 检查）'}`}
           onClick={() => void handleProofread()}
         >
           <StatusGlyph name="proofread" />
@@ -356,6 +360,18 @@ export function StatusBar() {
                   {companionEnabled ? '关闭' : '开启'}
                 </button>
               </div>
+              <button
+                type="button"
+                role="menuitem"
+                className="status-style-option status-companion-now"
+                onClick={() => {
+                  setCompanionMenuOpen(false);
+                  useAIStore.getState().requestCompanion();
+                }}
+              >
+                <span className="status-style-check" aria-hidden="true"><AppIcon name="sparkles" size={14} /></span>
+                <span>立即在当前光标生成</span>
+              </button>
               <div className="status-style-menu-title">伴写风格</div>
               {WRITING_STYLES.map(({ value, label }) => (
                 <button

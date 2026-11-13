@@ -173,6 +173,8 @@ export interface Settings {
     /** 本地 Agent 后备总开关：AI 助手未配置时是否自动改用本机 AI Agent；关闭后直接报错。 */
     agent_fallback_enabled: boolean;
     auto_suggest: boolean;
+    /** 用户是否显式设置过自动伴写；用于把「Agent 模式默认开启伴写」只迁移一次。 */
+    auto_suggest_user_set?: boolean;
     suggest_delay: number;
     writing_style: 'formal' | 'casual' | 'academic' | 'creative' | 'custom';
     custom_style_prompt: string;
@@ -538,6 +540,7 @@ const defaultSettings: Settings = {
     companion_use_agent: false,
     agent_fallback_enabled: true,
     auto_suggest: false,
+    auto_suggest_user_set: false,
     suggest_delay: 2000,
     writing_style: 'formal',
     custom_style_prompt: '',
@@ -585,7 +588,15 @@ const normalizeSettings = (saved: Settings): Settings => ({
   web_search: { ...defaultSettings.web_search, ...saved.web_search },
   webdav: { ...defaultSettings.webdav, ...saved.webdav },
   s3: { ...defaultSettings.s3, ...saved.s3 },
-  ai: { ...defaultSettings.ai, ...saved.ai },
+  ai: (() => {
+    const ai = { ...defaultSettings.ai, ...saved.ai };
+    // 本地 Agent 已启用但用户从未显式开关过「AI 伴写」时默认开启：
+    // Agent 模式下伴写不依赖 API 密钥，开启后即可直接生效。
+    if (saved.agent?.enabled === true && saved.ai?.auto_suggest === false && !saved.ai?.auto_suggest_user_set) {
+      ai.auto_suggest = true;
+    }
+    return ai;
+  })(),
   agent: {
     ...defaultSettings.agent,
     ...saved.agent,

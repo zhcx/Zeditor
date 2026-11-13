@@ -218,6 +218,9 @@ interface AIAppliedRound {
 const PROOFREAD_MAX_RETRIES = 1;
 const PROOFREAD_RETRY_DELAY_MS = 500;
 
+export const COMPANION_MIN_CONTEXT_CHARS = 6;
+export const COMPANION_CONTEXT_LIMIT = 800;
+
 let companionRequestSeq = 0;
 const companionCache = new Map<string, string[]>();
 const MAX_COMPANION_CACHE_SIZE = 20;
@@ -316,6 +319,9 @@ interface AIState {
   // 伴写
   companionVisible: boolean;
   companionPosition: { x: number; y: number } | null;
+  /** 生成时的文档光标；点击弹窗按钮后原生选区可能已离开编辑器，插入仍以这里为准。 */
+  companionAnchor: number | null;
+  companionTabId: string | null;
   companionSuggestions: string[];
   currentStyle: 'formal' | 'casual' | 'academic' | 'creative' | 'custom';
 
@@ -346,6 +352,8 @@ interface AIState {
   /** 仅运行链接检查（菜单「检查链接」/ Ctrl+Alt+V）：结果替换当前校对结果并进入同一面板。 */
   runLinkCheck: () => Promise<void>;
   getCompanionSuggestion: (content: string, context?: string) => Promise<void>;
+  /** 在当前光标处手动生成；自动触发与状态栏「立即生成」共用同一入口。 */
+  requestCompanion: (override?: { prompt: string; anchor: number; position?: { x: number; y: number } }) => void;
   rewriteSelection: (text: string) => Promise<string>;
   translateText: (text: string, targetLang?: string) => Promise<string>;
   summarizeText: (content: string) => Promise<string>;
@@ -368,7 +376,9 @@ interface AIState {
   setReasoningEffort: (effort: ReasoningEffort) => void;
   toggleLinkDocument: () => void;
   setLinkedDocument: (doc: { title: string; path?: string; content: string } | null) => void;
-  setCompanionVisible: (visible: boolean, position?: { x: number; y: number }) => void;
+  setCompanionVisible: (visible: boolean, position?: { x: number; y: number }, anchor?: number) => void;
+  /** 关闭并废弃在途请求，避免旧响应随后又把弹窗打开。 */
+  dismissCompanion: () => void;
   setCurrentStyle: (style: 'formal' | 'casual' | 'academic' | 'creative' | 'custom') => void;
   setTranslationVisible: (visible: boolean, position?: { x: number; y: number }, original?: string, result?: string) => void;
   applySuggestion: (suggestion: string) => void;
@@ -389,6 +399,8 @@ export const useAIStore = create<AIState>((set, get) => ({
   proofreadPanelVisible: false,
   companionVisible: false,
   companionPosition: null,
+  companionAnchor: null,
+  companionTabId: null,
   companionSuggestions: [],
   currentStyle: 'formal',
   translationVisible: false,
@@ -434,9 +446,15 @@ export const useAIStore = create<AIState>((set, get) => ({
 
     set({ lastAppliedRound: { tabId: activeTabId, content, proposal, appliedContent: content.slice(0,proposal.from)+proposal.after+content.slice(proposal.to) }, pendingEdit: null });
     if (editorView) {
+      const end = proposal.from + proposal.after.length;
+      // 伴写续写是“在光标处插入”：落点用折叠光标，不要选中整段新文本，
+      // 否则在源码对照模式下会突然高亮一整片，看起来像是误选了内容。
+      const selection = proposal.kind === 'continuation'
+        ? { anchor: end, head: end }
+        : { anchor: proposal.from, head: end };
       editorView.dispatch(editorView.state.update({
         changes: { from: proposal.from, to: proposal.to, insert: proposal.after },
-        selection: { anchor: proposal.from, head: proposal.from + proposal.after.length },
+        selection,
       }));
       editorView.focus();
     } else {
@@ -642,6 +660,38 @@ export const useAIStore = create<AIState>((set, get) => ({
     });
   },
 
+  requestCompanion: (override) => {
+    const appState = useAppStore.getState();
+    const editor = appState.editorView;
+    const settings = appState.settings;
+    const selection = override ? null : editor?.getSelection();
+    const anchor = override?.anchor ?? selection?.to ?? null;
+    const prompt = override?.prompt
+      ?? (selection && editor ? editor.getText(Math.max(0, selection.to - COMPANION_CONTEXT_LIMIT), selection.to).trim() : '');
+    const position = override?.position
+      ?? (anchor !== null ? editor?.coordsAtPos(anchor) : null)
+      ?? { x: Math.max(12, window.innerWidth / 2 - 220), y: 72 };
+
+    const showError = (message: string) => {
+      set({ status: 'error', statusMessage: message, companionSuggestions: [] });
+      get().setCompanionVisible(true, position || undefined, anchor ?? undefined);
+    };
+    if (!settings.ai.enabled && !settings.agent.enabled) {
+      showError('请先在设置中启用 AI 助手或本地 Agent');
+      return;
+    }
+    if (anchor === null || (!override && selection && !selection.empty)) {
+      showError('请先把光标放在需要续写的位置');
+      return;
+    }
+    if (prompt.length < COMPANION_MIN_CONTEXT_CHARS) {
+      showError(`请先在光标前输入至少 ${COMPANION_MIN_CONTEXT_CHARS} 个字符`);
+      return;
+    }
+    get().setCompanionVisible(true, position || undefined, anchor);
+    void get().getCompanionSuggestion(prompt);
+  },
+
   getCompanionSuggestion: async (content, context) => {
     const requestSeq = ++companionRequestSeq;
     const settings = useAppStore.getState().settings;
@@ -657,6 +707,7 @@ export const useAIStore = create<AIState>((set, get) => ({
     const cacheKey = getCompanionCacheKey(trimmedContent);
     const cachedSuggestions = companionCache.get(cacheKey);
     if (cachedSuggestions) {
+      if (requestSeq !== companionRequestSeq) return;
       set({
         status: 'success',
         statusMessage: '',
@@ -1393,11 +1444,32 @@ ${beforeText.slice(-2000)}`,
     set({ proofreadPanelVisible: visible });
   },
 
-  setCompanionVisible: (visible, position) => {
+  setCompanionVisible: (visible, position, anchor) => {
+    if (!visible) {
+      get().dismissCompanion();
+      return;
+    }
+    const appState = useAppStore.getState();
     set({
-      companionVisible: visible,
+      companionVisible: true,
       companionPosition: position || null,
+      companionAnchor: anchor ?? appState.editorView?.getSelection().to ?? null,
+      companionTabId: appState.activeTabId,
     });
+  },
+
+  dismissCompanion: () => {
+    // 仅递增序号即可让旧响应失效；后端请求允许自然结束，但其结果不会再打开弹窗。
+    companionRequestSeq += 1;
+    set(state => ({
+      companionVisible: false,
+      companionPosition: null,
+      companionAnchor: null,
+      companionTabId: null,
+      companionSuggestions: [],
+      status: state.status === 'companion' || (state.status === 'error' && state.companionVisible) ? 'idle' : state.status,
+      statusMessage: state.status === 'companion' || (state.status === 'error' && state.companionVisible) ? '' : state.statusMessage,
+    }));
   },
 
   setCurrentStyle: (style) => {
@@ -1414,8 +1486,13 @@ ${beforeText.slice(-2000)}`,
   },
 
   applySuggestion: (suggestion) => {
-    const { editorView, content } = useAppStore.getState();
-    const position = editorView?.state.selection.main.to ?? content.length;
+    const { editorView, content, activeTabId } = useAppStore.getState();
+    const { companionAnchor, companionTabId } = get();
+    // 点击弹窗后 DOM 选区可能已移到按钮上；优先采用生成时保存的文档光标。
+    const position = companionTabId === activeTabId && companionAnchor !== null
+      ? companionAnchor
+      : editorView?.getSelection().to ?? content.length;
+    companionRequestSeq += 1;
     get().proposeEdit({
       kind: 'continuation',
       reason: 'AI 伴写：基于当前光标前的上下文续写，不包含事实核验。',
@@ -1424,7 +1501,13 @@ ${beforeText.slice(-2000)}`,
       from: position,
       to: position,
     });
-    set({ companionVisible: false, companionSuggestions: [] });
+    set({
+      companionVisible: false,
+      companionPosition: null,
+      companionAnchor: null,
+      companionTabId: null,
+      companionSuggestions: [],
+    });
   },
 
   applyProofreadFix: (result) => {

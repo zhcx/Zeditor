@@ -1302,7 +1302,7 @@ export function SettingsPanel() {
                   ai: { ...localSettings.ai, enabled: checked },
                 })}
               />
-              {localSettings.ai.enabled && (
+              {(localSettings.ai.enabled || localSettings.agent.enabled) && (
                 <>
                   <SettingToggle
                     label="使用 AI 校对"
@@ -1509,7 +1509,7 @@ export function SettingsPanel() {
                     checked={localSettings.ai.auto_suggest}
                     onChange={(checked) => setLocalSettings({
                       ...localSettings,
-                      ai: { ...localSettings.ai, auto_suggest: checked },
+                      ai: { ...localSettings.ai, auto_suggest: checked, auto_suggest_user_set: true },
                     })}
                   />
                   {localSettings.ai.auto_suggest && (

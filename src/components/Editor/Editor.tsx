@@ -8,7 +8,7 @@ import EditorWorker from 'monaco-editor/esm/vs/editor/editor.worker?worker';
 import { invoke } from '@tauri-apps/api/core';
 import { useAppStore, type Settings } from '../../stores/appStore';
 import { formatShortcut } from '../../utils/platformShortcuts';
-import { useAIStore, type ProofreadResult } from '../../stores/aiStore';
+import { useAIStore, COMPANION_CONTEXT_LIMIT, COMPANION_MIN_CONTEXT_CHARS, type ProofreadResult } from '../../stores/aiStore';
 import type { EditorController, EditorDispatchSpec, EditorLine } from '../../types/editor';
 import { EDITOR_OVERFLOW_OPTIONS, EDITOR_UNICODE_HIGHLIGHT_OPTIONS } from '../../utils/editorLayout';
 import { resolveEditorDisplay } from '../../utils/editorDisplay';
@@ -159,8 +159,6 @@ interface EditorProps {
   onActiveLineReveal?: (lineNumber: number) => void;
 }
 
-const MIN_AUTO_COMPANION_CHARS = 6;
-const AUTO_COMPANION_CONTEXT_LIMIT = 800;
 const AUTO_COMPANION_MIN_INTERVAL = 1200;
 
 interface SlashMenuState {
@@ -1039,22 +1037,25 @@ export function Editor({ className, style, onActiveLineChange, onActiveLineRevea
     const scheduleCompanion = () => {
       const currentSettings = useAppStore.getState().settings;
       const selection = controller.getSelection();
-      if (!currentSettings.ai.enabled || !currentSettings.ai.auto_suggest || !selection.empty) {
+      // AI 伴写既可由 AI 助手（API）提供，也可由本地 Agent 提供（Agent 模式）：
+      // 只要任一引擎开启即允许自动触发，具体走哪条由后端决定。
+      const engineEnabled = currentSettings.ai.enabled || currentSettings.agent.enabled;
+      if (!engineEnabled || !currentSettings.ai.auto_suggest || !selection.empty) {
         clearCompanionTimer();
         return;
       }
-      const before = controller.getText(Math.max(0, selection.to - AUTO_COMPANION_CONTEXT_LIMIT), selection.to).trim();
-      if (before.length < MIN_AUTO_COMPANION_CHARS) return;
+      const before = controller.getText(Math.max(0, selection.to - COMPANION_CONTEXT_LIMIT), selection.to).trim();
+      if (before.length < COMPANION_MIN_CONTEXT_CHARS) return;
+      if (useAIStore.getState().companionVisible) useAIStore.getState().dismissCompanion();
       clearCompanionTimer();
       autoCompanionTimerRef.current = window.setTimeout(() => {
         const latest = controller.getSelection();
-        const prompt = controller.getText(Math.max(0, latest.to - AUTO_COMPANION_CONTEXT_LIMIT), latest.to).trim();
+        const prompt = controller.getText(Math.max(0, latest.to - COMPANION_CONTEXT_LIMIT), latest.to).trim();
         const now = Date.now();
-        if (!latest.empty || prompt.length < MIN_AUTO_COMPANION_CHARS || prompt === autoCompanionLastPromptRef.current || now - autoCompanionLastRequestAtRef.current < AUTO_COMPANION_MIN_INTERVAL) return;
+        if (!latest.empty || prompt.length < COMPANION_MIN_CONTEXT_CHARS || prompt === autoCompanionLastPromptRef.current || now - autoCompanionLastRequestAtRef.current < AUTO_COMPANION_MIN_INTERVAL) return;
         autoCompanionLastPromptRef.current = prompt;
         autoCompanionLastRequestAtRef.current = now;
-        useAIStore.getState().setCompanionVisible(true, controller.coordsAtPos(latest.to) || undefined);
-        useAIStore.getState().getCompanionSuggestion(prompt);
+        useAIStore.getState().requestCompanion();
       }, Math.max(500, currentSettings.ai.suggest_delay || 2000));
     };
 
@@ -1080,7 +1081,8 @@ export function Editor({ className, style, onActiveLineChange, onActiveLineRevea
       if (switchingModel) return;
       historyCaret = controller.getSelection().from;
       onActiveLineChange?.(editor.getPosition()?.lineNumber || 1);
-      scheduleCompanion();
+      // 只有真实内容变化才自动伴写；点击/移动光标由弹窗的外部点击逻辑负责关闭，
+      // 不能因为一次普通选区变化又延迟弹出新的建议。
       refreshSlashMenu();
       refreshSelectionToolbar();
       refreshTableToolbar();

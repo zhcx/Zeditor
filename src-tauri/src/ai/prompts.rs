@@ -50,6 +50,7 @@ pub fn get_prompt(
 - from/to 是字符位置索引（从0开始），to不包含
 - type 只能是：spelling、grammar、punctuation、style、markdown、layout
 - 每次只改最小范围（1-10个字符）
+- 每个对象必须包含 from、to、original、suggestion、type 五个字段；suggestion 是替换后的正确文本，必填且不能为空
 
 示例：
 [{{"from":5,"to":7,"original":"的","suggestion":"地","type":"grammar","explanation":"副词后应用地"}}]

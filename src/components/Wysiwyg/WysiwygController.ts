@@ -130,7 +130,8 @@ export function createWysiwygController(deps: WysiwygControllerDeps): EditorCont
       const range = session.rangeOfOffset(offset) ?? deps.getCaretRange();
       const rect = range ? rectOfRange(range) : null;
       if (!rect) return null;
-      return { left: rect.left, bottom: rect.bottom, x: rect.left, y: rect.top };
+      // x/y 与源码编辑器（Monaco）保持一致：y 取选区底边，弹窗据此出现在光标下方。
+      return { left: rect.left, bottom: rect.bottom, x: rect.left, y: rect.bottom };
     },
     focus: () => deps.focus(),
     undo: () => { session.handleUndo(); },

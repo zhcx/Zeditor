@@ -3,7 +3,7 @@ import { flushSync } from 'react-dom';
 import { useShallow } from 'zustand/react/shallow';
 import { open as openExternal } from '@tauri-apps/plugin-shell';
 import { useAppStore } from '../../stores/appStore';
-import { useAIStore } from '../../stores/aiStore';
+import { useAIStore, COMPANION_CONTEXT_LIMIT, COMPANION_MIN_CONTEXT_CHARS } from '../../stores/aiStore';
 import { openWikiLink } from '../../services/wikiLinks';
 import { renderMarkdownSource } from '../../utils/markdownPipeline';
 import { sanitizeRenderedHtml } from '../../utils/safeHtml';
@@ -39,6 +39,9 @@ import { WysiwygChrome } from './WysiwygChrome';
 import { ProofreadHighlights } from './ProofreadHighlights';
 import { AppIcon } from '../Icons/AppIcon';
 import { formatShortcut } from '../../utils/platformShortcuts';
+
+/** 自动 AI 伴写与源码编辑器保持同一组阈值，保证两种模式的触发节奏一致。 */
+const AUTO_COMPANION_MIN_INTERVAL = 1200;
 
 /** 渲染结果按「块类型 + 块源码」缓存：只有被编辑的块需要重新渲染。 */
 const renderBlockHtml = createBlockHtmlRenderer(source => sanitizeRenderedHtml(renderMarkdownSource(source)));
@@ -504,6 +507,74 @@ export function WysiwygEditor() {
   const [contextMenu, setContextMenu] = useState<EditorContextMenuState | null>(null);
   const [imageInsertOpen, setImageInsertOpen] = useState(false);
   const imageInsertAfterRef = useRef<number | null>(null);
+  const autoCompanionTimerRef = useRef<number | null>(null);
+  const autoCompanionLastPromptRef = useRef('');
+  const autoCompanionLastRequestAtRef = useRef(0);
+
+  const clearCompanionTimer = useCallback(() => {
+    if (autoCompanionTimerRef.current !== null) window.clearTimeout(autoCompanionTimerRef.current);
+    autoCompanionTimerRef.current = null;
+  }, []);
+
+  /**
+   * 所见即所得模式下的自动 AI 伴写：源码编辑器挂在 Monaco 的 onDidChangeModelContent 上，
+   * 这里改成由内容输入（块内输入 / 表面输入）驱动。编辑会话与控制器都已存在，于是复用
+   * 同一套「光标为空、前文足够、去重、最小间隔」的判定，再交给 AI store 弹出伴写建议。
+   */
+  const scheduleCompanion = useCallback((blockIndex?: number) => {
+    const currentSettings = useAppStore.getState().settings;
+    const engineEnabled = currentSettings.ai.enabled || currentSettings.agent.enabled;
+    if (!engineEnabled || !currentSettings.ai.auto_suggest) {
+      clearCompanionTimer();
+      return;
+    }
+    // 用户继续输入时应先收起旧建议，避免弹窗停留在过时位置显得突兀。
+    if (useAIStore.getState().companionVisible) useAIStore.getState().dismissCompanion();
+    // 轻量读数：仅取当前选区判空，不在每次键入时 flush 编辑会话；
+    // 真正读取上下文放到下面防抖后的回调里，只在停顿后 flush 一次。
+    const selection = session.getSelectionOffsets();
+    if (selection.from !== selection.to) {
+      clearCompanionTimer();
+      return;
+    }
+    clearCompanionTimer();
+    autoCompanionTimerRef.current = window.setTimeout(() => {
+      const latestEditor = useAppStore.getState().editorView;
+      let caret: number | null = null;
+      let prompt = '';
+      let position: { x: number; y: number } | undefined;
+      // 仅当 Monaco 编辑器确实挂载在 DOM 中时才用它的选区/正文；所见即所得模式下
+      // editorView 可能残留上一个文档的实例，不能拿来做当前文档的上下文。
+      if (latestEditor?.scrollDOM?.isConnected) {
+        const latest = latestEditor.getSelection();
+        if (!latest.empty) return;
+        caret = latest.to;
+        prompt = latestEditor.getText(Math.max(0, caret - COMPANION_CONTEXT_LIMIT), caret).trim();
+        position = latestEditor.coordsAtPos(caret) || undefined;
+      }
+      // WebKit/WKWebView 下嵌套 contenteditable 的选区偶尔读不回可靠偏移；
+      // 此时用触发输入的块尾作为兜底，保证伴写仍然能弹出来。
+      if ((!prompt || prompt.length < COMPANION_MIN_CONTEXT_CHARS) && blockIndex !== undefined) {
+        session.prepareExternalEdit();
+        const block = session.getBlocks()[blockIndex];
+        if (block) {
+          caret = block.offset + block.source.replace(/\n+$/, '').length;
+          prompt = session.getSource().slice(Math.max(0, caret - COMPANION_CONTEXT_LIMIT), caret).trim();
+          const rect = blockElementsRef.current.get(blockIndex)?.getBoundingClientRect();
+          if (rect) position = { x: rect.left, y: rect.bottom };
+        }
+      }
+      if (caret === null) return;
+      const now = Date.now();
+      if (prompt.length < COMPANION_MIN_CONTEXT_CHARS || prompt === autoCompanionLastPromptRef.current || now - autoCompanionLastRequestAtRef.current < AUTO_COMPANION_MIN_INTERVAL) return;
+      autoCompanionLastPromptRef.current = prompt;
+      autoCompanionLastRequestAtRef.current = now;
+      useAIStore.getState().requestCompanion({ prompt, anchor: caret, position });
+    }, Math.max(500, currentSettings.ai.suggest_delay || 2000));
+  }, [clearCompanionTimer, session]);
+
+  useEffect(() => () => clearCompanionTimer(), [clearCompanionTimer]);
+
 
   // 打开大文档时先渲染首屏附近的块，其余按帧补齐：首屏绘制时间与总块数解耦，
   // 打开看起来更快，补齐在随后的几帧内完成。预算跟着标签走——切到别的文档时
@@ -760,12 +831,45 @@ export function WysiwygEditor() {
     return Number.isInteger(index) ? index : null;
   }, []);
 
+  /** WebKit 有时把嵌套 contenteditable 的事件重定向到外层宿主，用 composedPath 找回真实块。 */
+  const blockIndexFromEvent = useCallback((event: Event): number | null => {
+    const direct = blockIndexForTarget(event.target);
+    if (direct !== null) return direct;
+    if (typeof event.composedPath === 'function') {
+      for (const node of event.composedPath()) {
+        if (node instanceof HTMLElement && node.dataset.blockIndex !== undefined) {
+          const index = Number(node.dataset.blockIndex);
+          if (Number.isInteger(index)) return index;
+        }
+      }
+    }
+    return null;
+  }, [blockIndexForTarget]);
+
   const handleSurfaceInput = useCallback((event: React.FormEvent<HTMLElement>) => {
-    const index = blockIndexForTarget(event.target);
+    const index = blockIndexFromEvent(event.nativeEvent);
     const block = index === null ? null : session.getBlocks()[index];
     if (!block || (!block.editable && block.kind !== 'table')) return;
     session.handleInput(index);
-  }, [blockIndexForTarget, session]);
+    scheduleCompanion(index);
+  }, [blockIndexFromEvent, scheduleCompanion, session]);
+
+  // WebKit（WKWebView）对嵌套 contenteditable 的 React 合成 input 事件偶有丢失，
+  // 这里在编辑表面以捕获阶段再挂一层原生监听，确保每次真实输入都能触发伴写调度。
+  useEffect(() => {
+    const surface = surfaceRef.current;
+    if (!surface) return;
+    const onNativeInput = (event: Event) => {
+      const index = blockIndexFromEvent(event);
+      if (index !== null) scheduleCompanion(index);
+    };
+    surface.addEventListener('input', onNativeInput, true);
+    surface.addEventListener('compositionend', onNativeInput, true);
+    return () => {
+      surface.removeEventListener('input', onNativeInput, true);
+      surface.removeEventListener('compositionend', onNativeInput, true);
+    };
+  }, [blockIndexFromEvent, scheduleCompanion]);
 
   const handleSurfaceKeyDown = useCallback((event: React.KeyboardEvent<HTMLElement>) => {
     const target = event.target instanceof Element ? event.target : null;
@@ -783,14 +887,14 @@ export function WysiwygEditor() {
         }
       }
     }
-    const index = blockIndexForTarget(event.target);
+    const index = blockIndexFromEvent(event.nativeEvent);
     if (index !== null) handleBlockKeyDown(event, index);
-  }, [blockIndexForTarget, handleBlockKeyDown, session]);
+  }, [blockIndexFromEvent, handleBlockKeyDown, session]);
 
   const handleSurfaceBeforeInput = useCallback((event: React.FormEvent<HTMLElement>) => {
     const target = event.target instanceof Element ? event.target : null;
     if (target?.closest('button, input, textarea, select, .wysiwyg-block-actions, .wysiwyg-source-layer, .wysiwyg-code-layer')) return;
-    if (blockIndexForTarget(event.target) === null) { event.preventDefault(); return; }
+    if (blockIndexFromEvent(event.nativeEvent) === null) { event.preventDefault(); return; }
     const input = event.nativeEvent as InputEvent;
     if (input.isComposing || typeof input.data !== 'string') return;
     const selection = session.getSelectionOffsets();
@@ -798,7 +902,10 @@ export function WysiwygEditor() {
       event.preventDefault();
       session.replaceRange(selection.from, selection.to, escapeInlineText(input.data));
     }
-  }, [blockIndexForTarget, session]);
+    // beforeinput 在 WebKit 下比 input 更可靠：先记下这次输入，防抖结束后再读取最新正文。
+    const index = blockIndexFromEvent(event.nativeEvent);
+    if (index !== null) scheduleCompanion(index);
+  }, [blockIndexFromEvent, scheduleCompanion, session]);
 
   const handleSurfaceCut = useCallback((event: React.ClipboardEvent<HTMLElement>) => {
     const selectionOffsets = session.getSelectionOffsets();
@@ -828,9 +935,11 @@ export function WysiwygEditor() {
         flushSync(() => session.replaceRange(selection.from, selection.to, ''));
       }
     }
-    const index = blockIndexForTarget(event.target);
+    const index = blockIndexFromEvent(event.nativeEvent);
     if (index !== null) session.markComposing(composing, index);
-  }, [blockIndexForTarget, session]);
+    // 中文输入法组合结束时 WebKit 不一定再派发一次普通 input 事件，显式补一次调度。
+    if (!composing) scheduleCompanion(index ?? undefined);
+  }, [blockIndexFromEvent, scheduleCompanion, session]);
 
   // 点击行内结构（链接 / 公式 / 图片）：用点击位置反查源码目标，复用既有弹窗。
   // 返回值告诉块视图点击是否已被消化——未消化时只读块会改为进入就地源码编辑。
@@ -894,7 +1003,10 @@ export function WysiwygEditor() {
 
   const handleEndSourceEditing = useCallback(() => { session.focus(); }, [session]);
 
-  const handleInput = useCallback((index: number) => session.handleInput(index), [session]);
+  const handleInput = useCallback((index: number) => {
+    session.handleInput(index);
+    scheduleCompanion(index);
+  }, [session, scheduleCompanion]);
   const handleBlurBlock = useCallback((index: number, nextFocus: Node | null) => session.normalizeBlock(index, nextFocus), [session]);
   const handleCommitCode = useCallback((index: number, code: string, language?: string) => { session.writeCodeBlock(index, code, language); }, [session]);
   // 代码编辑层是受控 textarea，原生撤销会被 React 覆盖，必须由共享历史接管。

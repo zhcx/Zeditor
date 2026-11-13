@@ -339,7 +339,7 @@ fn build_quick_turn(
             std::fs::create_dir_all(&overlay_dir)
                 .map_err(|error| format!("无法创建 DeepSeek Harness 配置目录：{error}"))?;
             let overlay_path = overlay_dir.join("dsh-overlay.yml");
-            std::fs::write(&overlay_path, adapters::dsh_overlay(None, None))
+            std::fs::write(&overlay_path, adapters::dsh_bridge_overlay())
                 .map_err(|error| format!("无法写入 DeepSeek Harness 配置：{error}"))?;
             command.arg("headless");
             command.arg("--patch").arg(&overlay_path);
@@ -619,6 +619,24 @@ mod tests {
     fn collector_rejects_empty_answer() {
         let collector = QuickCollector::new();
         assert!(collector.result(AgentBackendId::Opencode).is_err());
+    }
+
+    #[test]
+    fn dsh_bridge_overlay_disables_tools() {
+        let yaml = adapters::dsh_bridge_overlay();
+        assert!(yaml.contains("provider: magpie"), "overlay missing model config");
+        assert!(
+            yaml.contains("- id: tool-bash\n  disabled: true"),
+            "overlay must disable tool-bash: {yaml}"
+        );
+        assert!(
+            yaml.contains("- id: tool-fs\n  disabled: true"),
+            "overlay must disable tool-fs: {yaml}"
+        );
+        assert!(
+            !yaml.contains("- id: tools\n  disabled: true"),
+            "the tools service must stay enabled or agent-loop cannot start"
+        );
     }
 
     /// 真实调用本机 Agent CLI（消耗少量模型额度），验证桥接端到端可用。

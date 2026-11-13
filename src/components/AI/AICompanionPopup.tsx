@@ -1,3 +1,4 @@
+import { useEffect, useRef } from 'react';
 import { useShallow } from 'zustand/react/shallow';
 import { useAIStore } from '../../stores/aiStore';
 import { useAppStore } from '../../stores/appStore';
@@ -9,12 +10,33 @@ export function AICompanionPopup() {
     companionSuggestions,
     status,
     statusMessage,
-    setCompanionVisible,
     applySuggestion,
-    getCompanionSuggestion,
-    clearResults
-  } = useAIStore(useShallow(state => ({ companionVisible: state.companionVisible, companionPosition: state.companionPosition, companionSuggestions: state.companionSuggestions, status: state.status, statusMessage: state.statusMessage, setCompanionVisible: state.setCompanionVisible, applySuggestion: state.applySuggestion, getCompanionSuggestion: state.getCompanionSuggestion, clearResults: state.clearResults })));
+    requestCompanion,
+    dismissCompanion,
+  } = useAIStore(useShallow(state => ({ companionVisible: state.companionVisible, companionPosition: state.companionPosition, companionSuggestions: state.companionSuggestions, status: state.status, statusMessage: state.statusMessage, applySuggestion: state.applySuggestion, requestCompanion: state.requestCompanion, dismissCompanion: state.dismissCompanion })));
   const currentStyle = useAppStore((state) => state.settings.ai.writing_style);
+  const popupRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!companionVisible) return;
+    const handlePointerDown = (event: PointerEvent) => {
+      if (!popupRef.current?.contains(event.target as Node)) dismissCompanion();
+    };
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        event.preventDefault();
+        event.stopPropagation();
+        dismissCompanion();
+      }
+    };
+    // 捕获阶段处理：Monaco 与 contenteditable 都可能在自己的鼠标回调里停止冒泡。
+    document.addEventListener('pointerdown', handlePointerDown, true);
+    document.addEventListener('keydown', handleKeyDown, true);
+    return () => {
+      document.removeEventListener('pointerdown', handlePointerDown, true);
+      document.removeEventListener('keydown', handleKeyDown, true);
+    };
+  }, [companionVisible, dismissCompanion]);
 
   if (!companionVisible || !companionPosition) return null;
 
@@ -29,27 +51,23 @@ export function AICompanionPopup() {
   };
 
   const handleRefresh = () => {
-    const { editorView } = useAppStore.getState();
-    if (editorView) {
-      const selection = editorView.state.selection.main;
-      const textBefore = editorView.state.sliceDoc(Math.max(0, selection.to - 500), selection.to);
-      getCompanionSuggestion(textBefore);
-    }
+    // 与自动触发共用入口：源码与所见即所得都会先 flush 编辑，再读取最新光标上下文。
+    requestCompanion();
   };
 
   const handleClose = () => {
-    setCompanionVisible(false);
-    clearResults();
+    dismissCompanion();
   };
 
-  // 计算弹出框位置，确保不超出屏幕
+  // 靠近右侧/底部时向内收拢；底部空间不足则改到光标上方，避免操作按钮被裁掉。
+  const below = companionPosition.y + 14;
   const popupStyle: React.CSSProperties = {
-    left: Math.min(companionPosition.x, window.innerWidth - 460),
-    top: Math.min(companionPosition.y + 14, window.innerHeight - 380),
+    left: Math.max(12, Math.min(companionPosition.x, window.innerWidth - 452)),
+    top: below + 380 <= window.innerHeight ? below : Math.max(12, companionPosition.y - 380),
   };
 
   return (
-    <div className="ai-companion-popup" style={popupStyle}>
+    <div ref={popupRef} className="ai-companion-popup" style={popupStyle} role="dialog" aria-label="AI 伴写">
       <div className="ai-companion-header">
         <div>
           <div className="ai-companion-title">AI伴写</div>

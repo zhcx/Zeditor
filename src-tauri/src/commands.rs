@@ -330,6 +330,9 @@ pub struct AISettings {
     pub model: String,
     pub temperature: f32,
     pub auto_suggest: bool,
+    /// 用户是否显式设置过自动伴写；用于前端迁移「Agent 模式默认开启伴写」。
+    #[serde(default)]
+    pub auto_suggest_user_set: bool,
     pub suggest_delay: u32,
     pub writing_style: String,
     pub custom_style_prompt: String,
@@ -460,6 +463,7 @@ impl Default for Settings {
                 model: "gpt-4o-mini".into(),
                 temperature: 0.7,
                 auto_suggest: false,
+                auto_suggest_user_set: false,
                 suggest_delay: 2000,
                 writing_style: "formal".into(),
                 custom_style_prompt: String::new(),

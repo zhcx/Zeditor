@@ -2028,6 +2028,7 @@ mod tests {
             model: String::new(),
             temperature: 0.7,
             auto_suggest: false,
+            auto_suggest_user_set: false,
             suggest_delay: 2000,
             writing_style: "formal".into(),
             custom_style_prompt: String::new(),

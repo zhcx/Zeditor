@@ -229,6 +229,52 @@ pub(crate) fn dsh_overlay(model: Option<&str>, reasoning_effort: Option<&str>) -
     yaml
 }
 
+/// 桥接（一次性文本任务）专用的 DSH overlay：在默认模型配置之外，停用全部
+/// 内建工具插件（保留 `tools` 服务本体，否则 agent-loop 无法启动），让模型
+/// 只能以纯文本作答，避免校对/伴写等场景误触发工具而被桥上中止。
+pub(crate) fn dsh_bridge_overlay() -> String {
+    let mut yaml = dsh_overlay(None, None);
+    yaml.push_str(
+        "\
+- id: tool-plugin-manager
+  disabled: true
+- id: tool-working-directory
+  disabled: true
+- id: tool-bash
+  disabled: true
+- id: tool-pwsh
+  disabled: true
+- id: tool-jobs
+  disabled: true
+- id: tool-fs
+  disabled: true
+- id: tool-fs-search
+  disabled: true
+- id: tool-skill
+  disabled: true
+- id: tool-agent-team
+  disabled: true
+- id: tool-subagent-control
+  disabled: true
+- id: tool-subagent
+  disabled: true
+- id: tool-subagent-fork
+  disabled: true
+- id: tool-workflow
+  disabled: true
+- id: tool-result-pruner
+  disabled: true
+- id: tool-todo
+  disabled: true
+- id: tool-goal
+  disabled: true
+- id: tool-web
+  disabled: true
+",
+    );
+    yaml
+}
+
 pub fn opencode_permissions(mode: AgentApprovalMode, read_only: bool) -> Value {
     let ask = if mode == AgentApprovalMode::AllowAllSession {
         "allow"
