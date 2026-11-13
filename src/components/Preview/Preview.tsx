@@ -118,12 +118,14 @@ export function Preview({ className, style, onScrollContainerReady, onContentRen
       documentPath: currentFile,
       workflowViewerEnabled,
       theme: resolvedThemeRef.current,
+      autoNumberHeadings: settings.editor.auto_number_headings === true,
+      linkPreview: settings.editor.link_preview !== false,
       onContentRendered,
       onJumpToLine: (line) => workflowJumpRef.current?.(line),
       onOpenImageEditor: (index) => imageInteractionRef.current.openEditor(index),
       onOpenImageMenu: (event, index) => imageInteractionRef.current.openMenu(event, index),
     });
-  }, [deferredContent, mermaidThemeVersion, onContentRendered, currentFile, workflowViewerEnabled]);
+  }, [deferredContent, mermaidThemeVersion, onContentRendered, currentFile, workflowViewerEnabled, settings.editor.auto_number_headings, settings.editor.link_preview]);
 
   useEffect(() => {
     const container = containerRef.current;

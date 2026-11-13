@@ -90,6 +90,10 @@ export interface Settings {
     indent_guides?: boolean;
     /** 在状态栏显示当前标签页的视图状态按钮，点击可切换视图状态。 */
     show_view_state_button?: boolean;
+    /** 预览中为标题自动编号（1 / 1.1 / 1.1.1），只影响只读渲染，不改源码。 */
+    auto_number_headings?: boolean;
+    /** 预览中鼠标悬停链接时弹出内容预览卡片。 */
+    link_preview?: boolean;
     favorite_emojis: string[];
     /**
      * Monaco 输入引擎路径：
@@ -454,6 +458,8 @@ const defaultSettings: Settings = {
     fold_indentation: true,
     indent_guides: true,
     show_view_state_button: true,
+    auto_number_headings: false,
+    link_preview: true,
     favorite_emojis: ['😀', '👍', '❤️', '🎉', '✅', '⚠️', '💡', '🚀'],
     input_engine: 'editContext',
   },

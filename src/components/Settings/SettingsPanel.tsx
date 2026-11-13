@@ -755,6 +755,18 @@ export function SettingsPanel() {
                 checked={editorDisplay.showViewStateButton}
                 onChange={(checked) => applyEditorDisplay({ show_view_state_button: checked })}
               />
+              <SettingToggle
+                label="标题自动编号"
+                description="预览中为标题自动加上 1 / 1.1 / 1.1.1 形式的编号，只影响阅读视图，不修改正文源码"
+                checked={localSettings.editor.auto_number_headings === true}
+                onChange={(checked) => applyEditorDisplay({ auto_number_headings: checked })}
+              />
+              <SettingToggle
+                label="链接悬浮预览"
+                description="在预览中把鼠标悬停在链接上时弹出卡片：外部链接显示域名，本地笔记显示标题与开头内容"
+                checked={localSettings.editor.link_preview !== false}
+                onChange={(checked) => applyEditorDisplay({ link_preview: checked })}
+              />
               <div className="settings-subsection-divider" />
               <div className="setting-item">
                 <label>自动保存间隔 (ms)</label>

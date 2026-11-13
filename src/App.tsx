@@ -38,6 +38,7 @@ const DocumentSwitcher = lazy(() => import('./components/DocumentSwitcher/Docume
 const WysiwygEditor = lazy(() => import('./components/Wysiwyg/WysiwygEditor').then(m => ({ default: m.WysiwygEditor })));
 const ModeChooserDialog = lazy(() => import('./components/Onboarding/ModeChooserDialog').then(m => ({ default: m.ModeChooserDialog })));
 const EncodingDialog = lazy(() => import('./components/Encoding/EncodingDialog').then(m => ({ default: m.EncodingDialog })));
+const LibraryDialogs = lazy(() => import('./components/Library/LibraryDialogs').then(m => ({ default: m.LibraryDialogs })));
 import { getCurrentWebviewWindow } from '@tauri-apps/api/webviewWindow';
 import { initMcpDispatcher } from './services/mcpDispatcher';
 import { getCurrentWindow } from '@tauri-apps/api/window';
@@ -1515,6 +1516,9 @@ function App() {
       <StatusBar />
       <ChineseTypographyDialog />
       <LineWidthWheel />
+      <Suspense fallback={null}>
+        <LibraryDialogs />
+      </Suspense>
       {showModeChooser && (
         <Suspense fallback={null}>
           <ModeChooserDialog busy={modeChoiceSaving} onChoose={(choice) => { void chooseMode(choice); }} />

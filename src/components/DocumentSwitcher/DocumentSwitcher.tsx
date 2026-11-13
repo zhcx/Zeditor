@@ -14,6 +14,8 @@ import { formatShortcut } from '../../utils/platformShortcuts';
 import { FileTypeIcon } from '../Sidebar/FileTypeIcon';
 import './document-switcher.css';
 import { t } from '../../i18n';
+import { useLibraryStore } from '../../stores/libraryStore';
+import { copyActiveAsRichText, togglePinPath } from '../../services/libraryActions';
 
 interface DocumentSwitcherProps {
   onClose: () => void;
@@ -289,6 +291,10 @@ export function DocumentSwitcher({ onClose, onRevealActivityView, query, onQuery
     { id: 'mode-zen', label: t('沉浸写作', language), run: () => useAppStore.getState().setMode('zen') },
     { id: 'export-html', label: t('导出为 HTML', language), run: () => window.dispatchEvent(new CustomEvent('zeditor-export-request', { detail: { format: 'html' } })) },
     { id: 'export-word', label: t('导出为 Word', language), run: () => window.dispatchEvent(new CustomEvent('zeditor-export-request', { detail: { format: 'word' } })) },
+    { id: 'insert-snippet', label: '插入片段', run: () => useLibraryStore.getState().setDialog('snippets') },
+    { id: 'new-from-template', label: '用模板新建', run: () => useLibraryStore.getState().setDialog('templates') },
+    { id: 'copy-rich-text', label: '复制为富文本', run: () => { void copyActiveAsRichText(); } },
+    { id: 'toggle-pin', label: '置顶当前文档', run: () => { const state = useAppStore.getState(); const tab = state.tabs.find(item => item.id === state.activeTabId); if (tab?.path) togglePinPath(tab.path, tab.title, 'file'); } },
     { id: 'settings', label: t('设置', language), run: () => useAppStore.getState().setSettingsOpen(true) },
   ], [language, onRevealActivityView]);
   // 空输入只列前几条常用命令，输入 `>` 后按命令名过滤并放开条数；正常搜索时不占用结果区。

@@ -108,13 +108,20 @@ test('toolbar merges similar commands into dropdown menus and keeps only high-fr
   assert.match(editGroup, /label: '整理'/);
   assert.match(editGroup, /menu: \[[\s\S]*?\{ label: '检查并格式化 Markdown'/);
 
-  const insertGroup = sliceBetween("title: '插入'", 'const toolbarButtons');
+  const insertGroup = sliceBetween("title: '插入'", "title: '资料'");
   assert.equal(countDirectButtons(insertGroup), 4);
   assert.match(insertGroup, /label: '表格', picker: true/);
   for (const label of ["label: '插入'", "label: '公式'", "label: '图表'"]) {
     assert.match(insertGroup, new RegExp(label), label);
   }
   assert.match(insertGroup, /menu: \[[\s\S]*?\{ label: 'Mermaid 流程图'/);
+
+  // 资料库分组：片段 / 模板 / 复制富文本三个直接按钮。
+  const libraryGroup = sliceBetween("title: '资料'", 'const toolbarButtons');
+  assert.equal(countDirectButtons(libraryGroup), 3);
+  for (const label of ["label: '片段'", "label: '模板'", "label: '复制富文本'"]) {
+    assert.match(libraryGroup, new RegExp(label), label);
+  }
 });
 
 test('toolbar dropdown component positions itself, closes on Escape and supports keyboard navigation', async () => {

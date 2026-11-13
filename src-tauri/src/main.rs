@@ -229,6 +229,7 @@ fn main() {
             commands::reveal_in_file_manager,
             commands::resolve_wiki_link,
             commands::find_wiki_backlinks,
+            commands::link_preview,
             commands::get_recent_files,
             commands::update_recent_file,
             commands::remove_recent_file,

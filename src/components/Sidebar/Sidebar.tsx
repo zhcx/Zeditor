@@ -29,6 +29,9 @@ import { refreshWorkspaceFolderTree, replaceNodeChildren, type FileNode } from '
 import { deleteDocument, enqueueDocumentWrite, isPathWithin } from '../../utils/documentSafety';
 import { FileTypeIcon } from './FileTypeIcon';
 import { useTabClose } from '../../hooks/useTabClose';
+import { PinnedSection } from '../Library/PinnedSection';
+import { useLibraryStore } from '../../stores/libraryStore';
+import { togglePinPath } from '../../services/libraryActions';
 
 const UnsavedChangesDialog = lazy(() => import('../UnsavedChangesDialog/UnsavedChangesDialog').then(m => ({ default: m.UnsavedChangesDialog })));
 const RecycleDialog = lazy(() => import('../Recycle/RecycleDialog').then(m => ({ default: m.RecycleDialog })));
@@ -990,6 +993,8 @@ function ExplorerSidebar({ style }: SidebarProps) {
 
           <BacklinksSection documentPath={currentFile} />
 
+          <PinnedSection />
+
           <section className="explorer-section history-section">
             <button className="explorer-section-heading" onClick={() => setHistoryExpanded(expanded => !expanded)}>
               <Chevron expanded={historyExpanded} />
@@ -1149,6 +1154,18 @@ function ExplorerSidebar({ style }: SidebarProps) {
               setContextMenu(null);
             }}>
               {expandedNodes.has(contextMenu.node.path) ? '折叠文件夹' : '展开文件夹'}
+            </button>
+          )}
+          {(contextMenu.targetType === 'file' || contextMenu.targetType === 'folder') && (
+            <button className="context-menu-item" onClick={() => {
+              togglePinPath(
+                contextMenu.node.path,
+                contextMenu.node.name,
+                contextMenu.targetType === 'folder' ? 'folder' : 'file',
+              );
+              setContextMenu(null);
+            }}>
+              {useLibraryStore.getState().isPinned(contextMenu.node.path) ? '取消置顶' : '置顶到快速访问'}
             </button>
           )}
 

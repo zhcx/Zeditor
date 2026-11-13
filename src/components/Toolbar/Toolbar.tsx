@@ -26,6 +26,8 @@ import { stripInlineFormatting } from '../../utils/inlineFormatting';
 import { applyHeadingLevel, createHeadingEdit } from '../../utils/headingFormatting';
 import { prepareMarkdownPaste } from '../../utils/markdownPaste';
 import { fitToolbarButtons } from '../../utils/workbenchNavigation';
+import { useLibraryStore } from '../../stores/libraryStore';
+import { copyActiveAsRichText } from '../../services/libraryActions';
 
 type ToolbarIconName = 'link' | 'image' | 'video' | 'table' | 'folder' | 'chat' | 'proofread' | 'sparkle' | 'palette' | 'rewrite' | 'translate' | 'summary' | 'outline';
 
@@ -554,6 +556,14 @@ export function Toolbar({ variant = 'pinned' }: ToolbarProps) {
             { label: 'Markmap 思维导图', action: () => insertAtCursor(`\n${MARKMAP_TEMPLATE}\n`, MARKMAP_TEMPLATE_SELECTION.start + 1) },
           ],
         },
+      ],
+    },
+    {
+      title: '资料',
+      buttons: [
+        { label: '片段', title: '插入片段', action: () => useLibraryStore.getState().setDialog('snippets') },
+        { label: '模板', title: '用模板新建文档', action: () => useLibraryStore.getState().setDialog('templates') },
+        { label: '复制富文本', title: '复制为富文本（可粘贴到 Word / 笔记应用）', action: () => { void copyActiveAsRichText(); } },
       ],
     },
   ];

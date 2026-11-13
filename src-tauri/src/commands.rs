@@ -3957,3 +3957,87 @@ pub async fn finalize_update_install(installer_path: String) -> Result<(), Strin
         Err("自动安装仅支持 Windows".to_string())
     }
 }
+
+#[derive(Debug, Clone, Serialize)]
+pub struct LinkPreviewInfo {
+    pub exists: bool,
+    pub title: String,
+    pub snippet: String,
+    pub is_markdown: bool,
+}
+
+/// 预览悬浮卡片数据：本地链接指向的文件是否存在，并读取标题 / 开头摘要。
+/// 只读取 Markdown / 文本类文件的前若干字符用于摘要，避免大文件一次性载入。
+#[tauri::command]
+pub fn link_preview(path: String) -> Result<LinkPreviewInfo, String> {
+    let target = PathBuf::from(&path);
+    let default_title = target
+        .file_stem()
+        .and_then(|stem| stem.to_str())
+        .unwrap_or("")
+        .to_string();
+
+    if !target.exists() {
+        return Ok(LinkPreviewInfo {
+            exists: false,
+            title: default_title,
+            snippet: String::new(),
+            is_markdown: false,
+        });
+    }
+
+    let ext = target
+        .extension()
+        .and_then(|value| value.to_str())
+        .unwrap_or("")
+        .to_ascii_lowercase();
+    let is_markdown = matches!(
+        ext.as_str(),
+        "md" | "mkd" | "markdown" | "rmd" | "mdx" | "txt" | "text" | "log"
+    );
+
+    let mut title = default_title;
+    let mut snippet = String::new();
+
+    if is_markdown {
+        if let Ok(bytes) = std::fs::read(&target) {
+            // 只取前 24KB，足够得到标题与开头摘要。
+            let slice = &bytes[..bytes.len().min(24_000)];
+            let content = String::from_utf8_lossy(slice);
+            let mut heading_found = false;
+            for raw in content.lines() {
+                let line = raw.trim();
+                if line.is_empty() {
+                    continue;
+                }
+                if line.starts_with('#') {
+                    if !heading_found {
+                        let text = line.trim_start_matches('#').trim();
+                        if !text.is_empty() {
+                            title = text.to_string();
+                        }
+                        heading_found = true;
+                    }
+                    continue;
+                }
+                if line.starts_with("```") || line.starts_with("~~~") || line.starts_with('|') {
+                    continue;
+                }
+                if snippet.is_empty() {
+                    let trimmed: String = line.chars().take(180).collect();
+                    snippet = trimmed;
+                }
+                if heading_found && !snippet.is_empty() {
+                    break;
+                }
+            }
+        }
+    }
+
+    Ok(LinkPreviewInfo {
+        exists: true,
+        title,
+        snippet,
+        is_markdown,
+    })
+}

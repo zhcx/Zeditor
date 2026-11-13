@@ -22,6 +22,8 @@ import { buildMacAppMenu, type SystemMenuLabels } from '../../utils/nativeMenu';
 import { createMenuDispatcher, type AppMenuItem } from '../../utils/menuModel';
 import type { TableAction } from '../../utils/markdownTable';
 import { THEMES, resolveThemePreference } from '../../themes/apply';
+import { useLibraryStore } from '../../stores/libraryStore';
+import { copyActiveAsRichText } from '../../services/libraryActions';
 import appPackage from '../../../package.json';
 import changelog from '../../../CHANGELOG.md?raw';
 import { getReleaseNotes } from '../../utils/releaseNotes';
@@ -928,6 +930,9 @@ export function MenuBar() {
         { label: t('插入图片…', language), action: () => requestInsert('image'), shortcut: 'Ctrl+Shift+I' },
         { label: t('插入表格', language), action: () => requestInsert('table'), shortcut: 'Ctrl+Shift+T' },
         { label: t('插入思维导图', language), action: () => requestInsert('markmap') },
+        { label: '插入片段…', action: () => { setActiveMenu(null); useLibraryStore.getState().setDialog('snippets'); } },
+        { label: '用模板新建…', action: () => { setActiveMenu(null); useLibraryStore.getState().setDialog('templates'); } },
+        { label: '复制为富文本', action: () => { setActiveMenu(null); void copyActiveAsRichText(); } },
         { label: t('AI 指令面板', language), action: () => { setActiveMenu(null); window.dispatchEvent(new CustomEvent('zeditor-ai-palette')); }, shortcut: 'Ctrl+J' },
         { label: t('检查链接', language), action: () => { setActiveMenu(null); window.dispatchEvent(new CustomEvent('zeditor-check-links')); }, shortcut: 'Ctrl+Alt+V' },
         {

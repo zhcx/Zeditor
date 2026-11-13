@@ -23,6 +23,8 @@ import { findImages } from './imageSyntax.ts';
 import { resolveMediaSources } from '../services/mediaAssets';
 import { resolveWikiLinkTargets } from '../services/wikiLinks';
 import { parseFootnoteDefinitions, type FootnoteDefinition } from './footnotes.ts';
+import { applyHeadingNumbering } from './headingNumbering.ts';
+import { attachLinkPreview } from './linkPreview.ts';
 
 // 工作流查看器（含 YAML 解析器）与思维导图只在真的遇到时加载。
 const WorkflowViewer = lazy(() => import('../components/WorkflowViewer/WorkflowViewer').then(m => ({ default: m.WorkflowViewer })));
@@ -314,6 +316,10 @@ export interface EnhanceRenderedMarkdownOptions {
   workflowViewerEnabled: boolean;
   /** 当前解析后的主题 id，用于 Mermaid 主题选择。 */
   theme: string;
+  /** 预览中为标题自动编号（1 / 1.1 / 1.1.1），仅作用于只读渲染。 */
+  autoNumberHeadings?: boolean;
+  /** 预览中鼠标悬停链接时弹出内容预览卡片。 */
+  linkPreview?: boolean;
   /** 渲染或布局变化后通知调用方（滚动同步、内容高度测量）。 */
   onContentRendered?: () => void;
   /** 工作流图内「跳转」回调，参数为 1 起的源码行号（相对传入的 source）。 */
@@ -450,6 +456,7 @@ export function enhanceRenderedMarkdown(root: HTMLElement, options: EnhanceRende
 
   addHeadingAnchors(root);
   addListItemContentAnchors(root);
+  if (options.autoNumberHeadings) applyHeadingNumbering(root);
 
   // Wiki 链接存在性：解析失败的链接画成虚线，点击时再给出提示。
   // 结果有 30 秒缓存，输入期间同一批目标不会反复扫盘。
@@ -742,11 +749,13 @@ export function enhanceRenderedMarkdown(root: HTMLElement, options: EnhanceRende
 
   const cleanupTables = enhanceTables(root, options.documentPath);
   const cleanupFootnotes = options.footnotes === false ? () => undefined : enhanceFootnotes(root, options.source);
+  const cleanupLinkPreview = options.linkPreview ? attachLinkPreview(root, { documentPath: options.documentPath }) : () => undefined;
 
   return () => {
     disposed = true;
     cleanupTables();
     cleanupFootnotes();
+    cleanupLinkPreview();
     mermaidObserver?.disconnect();
     workflowObserver?.disconnect();
     markmapObserver?.disconnect();
