@@ -25,6 +25,7 @@ pub async fn list_models(
         AgentBackendId::ClaudeCode => list_claude_models(executable, workspace_root).await,
         AgentBackendId::Opencode => list_opencode_models(executable, workspace_root).await,
         AgentBackendId::Pi => list_pi_models(executable, workspace_root).await,
+        AgentBackendId::Dsh => Ok(list_dsh_models()),
     }
 }
 
@@ -440,8 +441,9 @@ fn configured_model(backend: AgentBackendId, workspace_root: Option<&Path>) -> O
                 );
             }
         }
-        // Codex 从 app-server 读取，Pi 从 RPC 的 get_state 读取，都不依赖配置文件。
-        AgentBackendId::Codex | AgentBackendId::Pi => return None,
+        // Codex 从 app-server 读取，Pi 从 RPC 的 get_state 读取，Dsh 的模型来自
+        // 静态目录，都不依赖 workspace 配置文件。
+        AgentBackendId::Codex | AgentBackendId::Pi | AgentBackendId::Dsh => return None,
     }
     paths.into_iter().find_map(|path| {
         let value = serde_json::from_slice::<Value>(&fs::read(path).ok()?).ok()?;
@@ -539,5 +541,35 @@ mod tests {
         );
         models.sort();
         assert_eq!(models, ["anthropic/test", "openai/gpt-test"]);
+    }
+}
+
+/// DeepSeek Harness 通过 `dsh headless --json` 运行，模型由 `--patch` overlay
+/// 指定（provider magpie，复用本机网关的 MAGPIE_GATEWAY_KEY）。这里给出该网关
+/// 常用模型的静态目录，默认选中 workbuddy/deepseek-v4.1-flash。
+fn list_dsh_models() -> AgentModelCatalog {
+    const DEFAULT_MODEL: &str = "workbuddy/deepseek-v4.1-flash";
+    let entry = |id: &str, name: &str, efforts: &[&str]| AgentModelOption {
+        id: id.to_string(),
+        display_name: name.to_string(),
+        description: format!("DeepSeek Harness · {id}"),
+        is_default: id == DEFAULT_MODEL,
+        default_reasoning_effort: None,
+        supported_reasoning_efforts: efforts.iter().map(|item| item.to_string()).collect(),
+    };
+    let models = vec![
+        entry("workbuddy/deepseek-v4.1-flash", "DeepSeek V4.1 Flash · WorkBuddy", &["low", "high", "max"]),
+        entry("workbuddy/deepseek-v4-pro", "DeepSeek V4 Pro · WorkBuddy", &["low", "high", "max"]),
+        entry("workbuddy/auto", "Auto · WorkBuddy", &["low", "high", "max"]),
+        entry("workbuddy/glm-5.3", "GLM-5.3 · WorkBuddy", &["low", "high", "max"]),
+        entry("auto/deepseek-v4-pro", "DeepSeek V4 Pro · routing group", &["off", "high"]),
+        entry("auto/glm-5.3-flash", "GLM-5.3-Flash · routing group", &["low", "high", "max"]),
+    ];
+    AgentModelCatalog {
+        backend: AgentBackendId::Dsh,
+        current_model: Some(DEFAULT_MODEL.to_string()),
+        models,
+        source: "DeepSeek Harness · Magpie".into(),
+        diagnostic: None,
     }
 }

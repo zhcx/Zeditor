@@ -9,6 +9,7 @@ pub enum AgentBackendId {
     Codex,
     Opencode,
     Pi,
+    Dsh,
 }
 
 impl AgentBackendId {
@@ -18,6 +19,7 @@ impl AgentBackendId {
             Self::Codex => "codex",
             Self::Opencode => "opencode",
             Self::Pi => "pi",
+            Self::Dsh => "dsh",
         }
     }
 
@@ -27,6 +29,7 @@ impl AgentBackendId {
             Self::Codex => "Codex",
             Self::Opencode => "OpenCode",
             Self::Pi => "Pi",
+            Self::Dsh => "DeepSeek Harness",
         }
     }
 }
@@ -68,11 +71,12 @@ impl AgentCapabilities {
             // Pi 没有逐工具审批：命令与编辑默认自行执行，安全边界仍由隔离
             // worktree + 应用前审阅承担。扩展发出的 extension_ui_request 仍会
             // 复用审批卡片，但不计入该能力。
-            approvals: !matches!(backend, AgentBackendId::Pi),
+            approvals: !matches!(backend, AgentBackendId::Pi | AgentBackendId::Dsh),
             session_resume: true,
             model_override: true,
-            // Pi 没有 agent/profile 概念，模型与推理等级通过 RPC 命令设置。
-            profile_override: !matches!(backend, AgentBackendId::Pi),
+            // Pi 没有 agent/profile 概念，模型与推理等级通过 RPC 命令设置；
+            // DeepSeek Harness 用 --patch overlay 覆盖模型，也没有独立 profile。
+            profile_override: !matches!(backend, AgentBackendId::Pi | AgentBackendId::Dsh),
             reasoning_effort: !matches!(backend, AgentBackendId::Opencode),
             file_context: true,
         }

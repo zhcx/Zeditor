@@ -73,6 +73,9 @@ struct SessionRuntime {
     allowed_kinds: Mutex<std::collections::HashSet<String>>,
     permission_dir: PathBuf,
     opencode_base_url: Mutex<Option<String>>,
+    /// 本回合是否已向时间线播报过「Pi 已开始处理」。pi 在每次自动重试时都会
+    /// 重新发一次 agent_start，若不抑制就会重复刷屏；这里按回合只播报一次。
+    start_announced: Mutex<bool>,
 }
 
 impl SessionRuntime {
@@ -95,6 +98,7 @@ impl SessionRuntime {
             allowed_kinds: Mutex::new(std::collections::HashSet::new()),
             permission_dir,
             opencode_base_url: Mutex::new(None),
+            start_announced: Mutex::new(false),
         }
     }
 }
@@ -300,7 +304,9 @@ fn prompt_with_editor_context(
 }
 
 fn visible_agent_stderr(backend: AgentBackendId, line: &str) -> Option<String> {
-    if backend == AgentBackendId::Codex {
+    // Codex 的 app-server 与 dsh 的 electron 运行时会往 stderr 刷大量协议/签名
+    // 噪声；它们的真实错误已通过结构化事件上报，不再把 stderr 混进时间线。
+    if matches!(backend, AgentBackendId::Codex | AgentBackendId::Dsh) {
         return None;
     }
     // 与 models.rs 共用同一实现（处理 CSI/OSC 序列），避免两份漂移。
@@ -369,6 +375,7 @@ fn probe_capabilities(path: &Path, backend: AgentBackendId) -> Result<(), String
         AgentBackendId::Codex => &["app-server", "--help"],
         AgentBackendId::Opencode => &["serve", "--help"],
         AgentBackendId::Pi => &["--help"],
+        AgentBackendId::Dsh => &["headless", "--help"],
     };
     let output = process::executable_command(path)?
         .args(args)
@@ -385,6 +392,7 @@ fn probe_capabilities(path: &Path, backend: AgentBackendId) -> Result<(), String
         AgentBackendId::Opencode => &["hostname", "port"],
         // pi 的帮助文本只列出 `--mode`，RPC 取值不会出现在帮助里。
         AgentBackendId::Pi => &["--mode"],
+        AgentBackendId::Dsh => &["--json", "--session-id"],
     };
     if !output.status.success() || required.iter().any(|needle| !help.contains(needle)) {
         return Err(format!(
@@ -415,6 +423,7 @@ pub async fn agent_detect_backends(
         AgentBackendId::Codex,
         AgentBackendId::Opencode,
         AgentBackendId::Pi,
+        AgentBackendId::Dsh,
     ]
     .into_iter()
     .map(|id| {
@@ -636,6 +645,7 @@ pub async fn agent_start_turn(
     *runtime.reasoning_effort.lock().await = request.reasoning_effort.clone();
     *runtime.context_paths.lock().await = context_paths;
     *runtime.turn_id.lock().await = Uuid::new_v4().to_string();
+    *runtime.start_announced.lock().await = false;
     *runtime.executable.lock().await = Some(executable.clone());
 
     // 与隔离工作区准备并行的探测到这里汇合（结果按 mtime 缓存，仅首次实际执行）。
@@ -692,6 +702,39 @@ async fn spawn_turn(
     app: AppHandle,
     storage_root: PathBuf,
 ) -> Result<(), String> {
+    // 热进程复用（Pi）：Pi 的 RPC 进程在上一回合完成后保持存活（见
+    // finish_session 的 keep-alive 分支）。若它仍然活着且输入通道打开，就直接
+    // 向同一条 stdin 下发新的提示词，跳过一次 node 冷启动与扩展加载——这正是
+    // GUI 内调用明显慢于终端的主要原因。会话文件在首回合由 get_state 记录，
+    // 复用进程本身仍停留在该会话中，无需再次切换。
+    let protocol_is_pi = *runtime.protocol.lock().await == Some(AdapterProtocol::PiRpc);
+    if protocol_is_pi {
+        let alive = {
+            let mut guard = runtime.child.lock().await;
+            match guard.as_mut() {
+                Some(child) => matches!(child.try_wait(), Ok(None)),
+                None => false,
+            }
+        };
+        if alive && runtime.stdin.lock().await.is_some() {
+            let session = runtime.session.lock().await.clone();
+            let prompt = runtime.prompt.lock().await.clone();
+            let relative_context_paths = runtime.context_paths.lock().await.clone();
+            let worktree = PathBuf::from(
+                session
+                    .worktree_path
+                    .as_deref()
+                    .ok_or("会话没有隔离工作区")?,
+            );
+            let context_paths = relative_context_paths
+                .iter()
+                .map(|path| worktree.join(path))
+                .collect::<Vec<_>>();
+            let message = adapters::prompt_with_context(&prompt, &worktree, &context_paths);
+            write_json(&runtime.stdin, &adapters::pi_prompt(&message)).await?;
+            return Ok(());
+        }
+    }
     if let Some(mut previous) = runtime.child.lock().await.take() {
         let _ = previous.kill().await;
     }
@@ -743,7 +786,7 @@ async fn spawn_turn(
         approval_mode: session.approval_mode,
         read_only: session.read_only,
         backend_session_id: session.backend_session_id.as_deref(),
-        permission_bridge: (session.backend == AgentBackendId::ClaudeCode)
+        permission_bridge: matches!(session.backend, AgentBackendId::ClaudeCode | AgentBackendId::Dsh)
             .then_some((current_exe.as_path(), runtime.permission_dir.as_path())),
     })?;
     let protocol = launch.protocol;
@@ -769,14 +812,8 @@ async fn spawn_turn(
     }
 
     if protocol == AdapterProtocol::PiRpc {
-        // 恢复历史会话：pi 用会话文件路径做切换，路径来自上一回合 get_state。
-        if let Some(session_path) = session
-            .backend_session_id
-            .as_deref()
-            .filter(|value| !value.is_empty())
-        {
-            write_json(&runtime.stdin, &adapters::pi_switch_session(session_path)).await?;
-        }
+        // 恢复历史会话已在启动参数 `--session` 中完成（见 adapters::build_launch），
+        // 这里不再发 switch_session，避免 pi 扩展 ctx 失效告警与多余往返。
         if let Some(level) = reasoning_effort
             .as_deref()
             .filter(|value| !value.is_empty())
@@ -1178,6 +1215,8 @@ async fn process_raw_event(
                 allow_value: adapters::pi_allow_option(&approval.options),
             },
             AdapterProtocol::ClaudeJson => return,
+            // DeepSeek Harness 没有交互式工具审批（headless 恒 never）。
+            AdapterProtocol::DshJson => return,
         };
         handle_approval(runtime, app, approval, channel).await;
         return;
@@ -1185,6 +1224,45 @@ async fn process_raw_event(
     if raw.kind == "done" {
         if let Some(content) = raw.content.filter(|item| !item.is_empty()) {
             emit_simple(runtime, app, "message_delta", content).await;
+        }
+        // pi 的 agent_end 在每个「尝试」后都会触发，失败时还会自动重试。
+        // willRetry=true 表示后面仍有重试，此时不能结束会话，否则会误报
+        // 「已完成」并在重试期间提前放开输入；只有最后一次（willRetry=false）
+        // 才真正结束。若最终 stopReason 为 error，则以失败状态结束并带出原因。
+        let payload = raw.payload.clone().unwrap_or(Value::Null);
+        if payload.get("willRetry").and_then(Value::as_bool) == Some(true) {
+            return;
+        }
+        let final_assistant = payload
+            .get("messages")
+            .and_then(Value::as_array)
+            .and_then(|items| {
+                items
+                    .iter()
+                    .rev()
+                    .find(|message| message.get("role").and_then(Value::as_str) == Some("assistant"))
+            });
+        let failed = final_assistant
+            .and_then(|message| message.get("stopReason"))
+            .and_then(Value::as_str)
+            == Some("error");
+        if failed {
+            let detail = final_assistant
+                .and_then(|message| {
+                    message
+                        .get("errorMessage")
+                        .or_else(|| message.get("content"))
+                })
+                .map(|value| {
+                    value
+                        .as_str()
+                        .map(str::to_string)
+                        .unwrap_or_else(|| value.to_string())
+                })
+                .unwrap_or_else(|| "Agent 执行失败".to_string());
+            let detail = adapters::friendly_agent_error(&detail);
+            finish_session(runtime, app, AgentSessionStatus::Error, Some(detail)).await;
+            return;
         }
         finish_session(runtime, app, AgentSessionStatus::Completed, None).await;
         return;
@@ -1196,6 +1274,15 @@ async fn process_raw_event(
     if raw.kind == "error" {
         finish_session(runtime, app, AgentSessionStatus::Error, raw.content).await;
         return;
+    }
+    // pi 每次自动重试都会重新发 agent_start，这里按回合只播报一次「Pi 已开始处理」，
+    // 避免同一条状态在时间线里重复堆叠（重试本身仍由 auto_retry_start 的提示体现）。
+    if raw.kind == "status" && raw.content.as_deref() == Some("Pi 已开始处理") {
+        let mut announced = runtime.start_announced.lock().await;
+        if *announced {
+            return;
+        }
+        *announced = true;
     }
     let sequence = runtime.sequence.fetch_add(1, Ordering::Relaxed) + 1;
     let event = AgentEvent {
@@ -1739,10 +1826,18 @@ async fn finish_session(
         session.last_error = error.clone();
         session.has_changes = has_changes;
     }
-    if let Some(child) = runtime.child.lock().await.as_mut() {
-        let _ = child.start_kill();
+    // Pi 的 RPC 进程在正常完成后保持存活，以便下一回合直接复用（热进程），
+    // 避免每回合重新冷启动 node 并加载扩展。仅在「完成」态对 Pi 保留子进程与
+    // stdin；出错、被中断或其余一次性后端（Claude/Codex/OpenCode）仍照旧结束。
+    let protocol = *runtime.protocol.lock().await;
+    let keep_alive = status == AgentSessionStatus::Completed
+        && protocol == Some(AdapterProtocol::PiRpc);
+    if !keep_alive {
+        if let Some(child) = runtime.child.lock().await.as_mut() {
+            let _ = child.start_kill();
+        }
+        *runtime.stdin.lock().await = None;
     }
-    *runtime.stdin.lock().await = None;
     let kind = if status == AgentSessionStatus::Error {
         "error"
     } else {
@@ -2102,5 +2197,118 @@ mod tests {
         .unwrap();
         assert_eq!(persisted.approval_mode, AgentApprovalMode::Tiered);
         fs::remove_dir_all(storage).unwrap();
+    }
+
+    #[test]
+    fn pi_launch_opens_saved_session_without_rpc_switch() {
+        let launch = adapters::build_launch(adapters::AdapterLaunchConfig {
+            backend: AgentBackendId::Pi,
+            executable: Path::new("/usr/bin/pi"),
+            cwd: Path::new("/tmp"),
+            prompt: "hello",
+            model: None,
+            profile: None,
+            reasoning_effort: None,
+            context_paths: &[],
+            approval_mode: AgentApprovalMode::Tiered,
+            read_only: false,
+            backend_session_id: Some("/tmp/pi-session.jsonl"),
+            permission_bridge: None,
+        })
+        .unwrap();
+        assert_eq!(launch.protocol, AdapterProtocol::PiRpc);
+        let args: Vec<String> = launch
+            .command
+            .as_std()
+            .get_args()
+            .map(|value| value.to_string_lossy().into_owned())
+            .collect();
+        assert!(args.iter().any(|value| value == "--mode"));
+        assert!(args.iter().any(|value| value == "rpc"));
+        assert!(args
+            .windows(2)
+            .any(|pair| pair[0] == "--session" && pair[1] == "/tmp/pi-session.jsonl"));
+    }
+
+    #[test]
+    fn friendly_error_explains_upstream_throttle_hold() {
+        let raw = "429: {\"type\":\"rate_limit_error\",\"code\":\"bili_throttle_hold\",\"message\":\"upstream rate-limited 1 consecutive request(s) to 127.0.0.1:3425; bili is holding outbound sends until 2026-11-13T13:05:54.593Z (~586s, exponential backoff)\"}";
+        let friendly = adapters::friendly_agent_error(raw);
+        assert!(friendly.contains("上游限流"), "got {friendly}");
+        assert!(friendly.contains("9 分 46 秒"), "got {friendly}");
+        assert!(friendly.contains("自动恢复"), "got {friendly}");
+    }
+
+    #[test]
+    fn friendly_error_explains_free_usage_limit() {
+        let raw = "429: {\"type\":\"rate_limit_error\",\"message\":\"OpenCode Zen Free: Free usage limit reached.\"}";
+        let friendly = adapters::friendly_agent_error(raw);
+        assert!(friendly.contains("限流"), "got {friendly}");
+        assert!(friendly.contains("Free usage limit reached"), "got {friendly}");
+    }
+
+    #[test]
+    fn dsh_launch_uses_headless_json_and_saved_session() {
+        let dir = std::env::temp_dir().join(format!("zeditor-dsh-test-{}", std::process::id()));
+        let launch = adapters::build_launch(adapters::AdapterLaunchConfig {
+            backend: AgentBackendId::Dsh,
+            executable: Path::new("/usr/local/bin/dsh"),
+            cwd: Path::new("/tmp"),
+            prompt: "hello",
+            model: Some("workbuddy/deepseek-v4.1-flash"),
+            profile: None,
+            reasoning_effort: Some("high"),
+            context_paths: &[],
+            approval_mode: AgentApprovalMode::Tiered,
+            read_only: false,
+            backend_session_id: Some("session-abc"),
+            permission_bridge: Some((Path::new("/usr/local/bin/zeditor"), dir.as_path())),
+        })
+        .unwrap();
+        assert_eq!(launch.protocol, AdapterProtocol::DshJson);
+        let args: Vec<String> = launch
+            .command
+            .as_std()
+            .get_args()
+            .map(|value| value.to_string_lossy().into_owned())
+            .collect();
+        assert_eq!(args.first().map(String::as_str), Some("headless"));
+        assert!(args.iter().any(|value| value == "--patch"));
+        assert!(args.iter().any(|value| value == "--json"));
+        assert!(args
+            .windows(2)
+            .any(|pair| pair[0] == "--session-id" && pair[1] == "session-abc"));
+        assert!(args
+            .windows(2)
+            .any(|pair| pair[0] == "--permission-mode" && pair[1] == "workspace-write"));
+        let overlay = std::fs::read_to_string(dir.join("dsh-overlay.yml")).unwrap();
+        assert!(overlay.contains("provider: magpie"), "overlay: {overlay}");
+        assert!(overlay.contains("workbuddy/deepseek-v4.1-flash"));
+        assert!(overlay.contains("reasoningEffort: \"high\""), "overlay: {overlay}");
+        fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn dsh_events_project_text_and_final() {
+        let text = adapters::line_events(
+            AdapterProtocol::DshJson,
+            &serde_json::json!({"type":"text","text":"好的"}),
+        );
+        assert_eq!(text[0].kind, "message_delta");
+        let done = adapters::line_events(
+            AdapterProtocol::DshJson,
+            &serde_json::json!({"type":"final","reason":{"kind":"completed"},"text":"好的"}),
+        );
+        assert_eq!(done[0].kind, "done");
+        let failed = adapters::line_events(
+            AdapterProtocol::DshJson,
+            &serde_json::json!({"type":"final","reason":{"kind":"error","error":{"message":"模型不可用"}}}),
+        );
+        assert_eq!(failed[0].kind, "error");
+        let session = adapters::line_events(
+            AdapterProtocol::DshJson,
+            &serde_json::json!({"type":"session","sessionId":"session-1"}),
+        );
+        assert_eq!(session[0].backend_session_id.as_deref(), Some("session-1"));
     }
 }

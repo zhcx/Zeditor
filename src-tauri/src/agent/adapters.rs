@@ -21,6 +21,7 @@ pub enum AdapterProtocol {
     CodexAppServer,
     OpenCodeJson,
     PiRpc,
+    DshJson,
 }
 
 pub struct AdapterLaunchConfig<'a> {
@@ -144,6 +145,13 @@ pub fn build_launch(config: AdapterLaunchConfig<'_>) -> Result<AdapterLaunch, St
             if let Some(value) = model.filter(|value| !value.is_empty()) {
                 command.args(["--model", value]);
             }
+            // 恢复历史会话：启动时直接用 `--session <文件路径>` 打开目标会话，
+            // 而不是启动后再下发 RPC `switch_session`。后者会让 pi 扩展持有的
+            // 上下文失效并打印「ctx is stale after session replacement」告警，
+            // 且多一次往返；放在启动参数里可同时消除告警和冷启动外的额外延迟。
+            if let Some(value) = backend_session_id.filter(|value| !value.is_empty()) {
+                command.args(["--session", value]);
+            }
             // 非交互模式下 pi 用「项目信任」决定是否加载项目上下文文件、
             // 扩展与技能。只读会话保持干净基线，其余加载项目资源。
             command.arg(if read_only {
@@ -152,6 +160,39 @@ pub fn build_launch(config: AdapterLaunchConfig<'_>) -> Result<AdapterLaunch, St
                 "--approve"
             });
             AdapterProtocol::PiRpc
+        }
+        AgentBackendId::Dsh => {
+            // `dsh headless` 是一次性任务后端：跑完一条任务、打印结果、退出。
+            // 默认 provider 是 deepseek-official，需要 DEEPSEEK_API_KEY；通过
+            // --patch overlay 把默认模型改到本机 Magpie 网关（复用
+            // $DSH_HOME/.env 里的 MAGPIE_GATEWAY_KEY），这样无需额外配置即可用。
+            let overlay_dir = permission_bridge
+                .map(|(_, dir)| dir.to_path_buf())
+                .unwrap_or_else(|| {
+                    std::env::temp_dir().join(format!("zeditor-dsh-{}", std::process::id()))
+                });
+            std::fs::create_dir_all(&overlay_dir)
+                .map_err(|error| format!("无法创建 DeepSeek Harness 配置目录：{error}"))?;
+            let overlay_path = overlay_dir.join("dsh-overlay.yml");
+            std::fs::write(&overlay_path, dsh_overlay(model, reasoning_effort))
+                .map_err(|error| format!("无法写入 DeepSeek Harness 配置：{error}"))?;
+            command.arg("headless");
+            command.arg("--patch").arg(&overlay_path);
+            let permission_mode = if read_only {
+                "read-only"
+            } else if approval_mode == AgentApprovalMode::AllowAllSession {
+                "danger-full-access"
+            } else {
+                "workspace-write"
+            };
+            // headless 没有实时审批通道，一律 never 由策略自动决定。
+            command.args(["--permission-mode", permission_mode, "--approval-policy", "never"]);
+            if let Some(value) = backend_session_id.filter(|value| !value.is_empty()) {
+                command.args(["--session-id", value]);
+            }
+            command.arg("--json");
+            command.arg(prompt_with_context(prompt, cwd, context_paths));
+            AdapterProtocol::DshJson
         }
     };
     command.kill_on_drop(true);
@@ -169,6 +210,23 @@ pub fn prompt_with_context(prompt: &str, cwd: &Path, context_paths: &[PathBuf]) 
         .collect::<Vec<_>>()
         .join("\n");
     format!("{prompt}\n\nRelevant files selected by the user:\n{files}")
+}
+
+/// DeepSeek Harness 的 `--patch` overlay：把默认模型指向本机 Magpie 网关的
+/// 一个可用模型（复用 `$DSH_HOME/.env` 的 MAGPIE_GATEWAY_KEY），避免默认
+/// provider deepseek-official 需要 DEEPSEEK_API_KEY 的问题。
+pub(crate) fn dsh_overlay(model: Option<&str>, reasoning_effort: Option<&str>) -> String {
+    let model = model
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .unwrap_or("workbuddy/deepseek-v4.1-flash");
+    let mut yaml = format!(
+        "- id: agent-default-model\n  config:\n    provider: magpie\n    model: {model:?}\n"
+    );
+    if let Some(effort) = reasoning_effort.map(str::trim).filter(|value| !value.is_empty()) {
+        yaml.push_str(&format!("    reasoningEffort: {effort:?}\n"));
+    }
+    yaml
 }
 
 pub fn opencode_permissions(mode: AgentApprovalMode, read_only: bool) -> Value {
@@ -302,6 +360,7 @@ pub fn pi_get_state() -> Value {
     json!({"type": "get_state"})
 }
 
+#[allow(dead_code)]
 pub fn pi_switch_session(session_path: &str) -> Value {
     json!({"type": "switch_session", "sessionPath": session_path})
 }
@@ -344,6 +403,7 @@ pub fn line_events(protocol: AdapterProtocol, value: &Value) -> Vec<RawAgentEven
         AdapterProtocol::CodexAppServer => codex_events(value),
         AdapterProtocol::OpenCodeJson => opencode_events(value),
         AdapterProtocol::PiRpc => pi_events(value),
+        AdapterProtocol::DshJson => dsh_events(value),
     }
 }
 
@@ -890,9 +950,75 @@ fn pi_ui_approval(value: &Value) -> Option<RawAgentEvent> {
 fn localize_pi_retry(value: &Value) -> String {
     let attempt = value.get("attempt").and_then(Value::as_u64);
     let max = value.get("maxAttempts").and_then(Value::as_u64);
-    match (attempt, max) {
+    let base = match (attempt, max) {
         (Some(attempt), Some(max)) => format!("连接暂时中断，正在重试（{attempt}/{max}）"),
-        _ => "连接暂时中断，正在重试".into(),
+        _ => "连接暂时中断，正在重试".to_string(),
+    };
+    // 若重试由上游限流触发，把预计恢复时间一并带上，避免用户以为程序卡死。
+    if let Some(hint) = value
+        .get("errorMessage")
+        .and_then(Value::as_str)
+        .and_then(throttle_hint)
+    {
+        return format!("{base} · {hint}");
+    }
+    base
+}
+
+/// 从一段错误文本（可能是 `429: {json}` 或纯 JSON）里解析出可读的限流提示。
+/// 返回形如「约 9 分 46 秒后自动恢复」的短句；非限流错误返回 None。
+pub fn throttle_hint(error_message: &str) -> Option<String> {
+    let json_part = error_message.splitn(2, ": ").nth(1).unwrap_or(error_message);
+    let value: Value = serde_json::from_str(json_part).ok()?;
+    let code = value.get("code").and_then(Value::as_str).unwrap_or_default();
+    let text = value.get("message").and_then(Value::as_str).unwrap_or_default();
+    if code == "bili_throttle_hold" || text.contains("holding outbound sends") {
+        if let Some(secs) = extract_hold_secs(text) {
+            return Some(format!("约 {} 后自动恢复", humanize_secs(secs)));
+        }
+        return Some("上游限流，请稍后再试".to_string());
+    }
+    None
+}
+
+/// 把 pi 的原始错误文本转成用户可读的中文说明，用于回合最终失败时展示。
+pub fn friendly_agent_error(error_message: &str) -> String {
+    let json_part = error_message.splitn(2, ": ").nth(1).unwrap_or(error_message);
+    if let Ok(value) = serde_json::from_str::<Value>(json_part) {
+        let code = value.get("code").and_then(Value::as_str).unwrap_or_default();
+        let text = value.get("message").and_then(Value::as_str).unwrap_or_default();
+        if code == "bili_throttle_hold" || text.contains("holding outbound sends") {
+            if let Some(secs) = extract_hold_secs(text) {
+                return format!(
+                    "模型服务被上游限流，预计约 {} 后自动恢复，请稍后再试（无需手动重试）。",
+                    humanize_secs(secs)
+                );
+            }
+            return "模型服务被上游限流，暂时无法发送请求，请稍后再试。".to_string();
+        }
+        if code.contains("rate_limit") || text.contains("Free usage limit") {
+            return format!("模型服务触发限流（429）：{text}");
+        }
+        if !text.is_empty() {
+            return format!("Agent 执行失败：{text}");
+        }
+    }
+    error_message.to_string()
+}
+
+/// 从「holding outbound sends until … (~586s, …)」里取出括号内的秒数。
+fn extract_hold_secs(text: &str) -> Option<u64> {
+    let idx = text.find("(~")?;
+    let rest = &text[idx + 2..];
+    let digits: String = rest.chars().take_while(|c| c.is_ascii_digit()).collect();
+    digits.parse().ok()
+}
+
+fn humanize_secs(secs: u64) -> String {
+    if secs >= 60 {
+        format!("{} 分 {} 秒", secs / 60, secs % 60)
+    } else {
+        format!("{secs} 秒")
     }
 }
 
@@ -918,4 +1044,112 @@ pub fn backend_overrides(
         .into_iter()
         .filter_map(|(key, value)| (!value.trim().is_empty()).then(|| (key, PathBuf::from(value))))
         .collect()
+}
+
+// ── DeepSeek Harness（dsh headless --json）─────────────────────────────
+// dsh 的 NDJSON 事件流：session / status / text / thinking / tool_call /
+// tool_result / final / error。text 与 thinking 是已提交消息的投影，不是
+// 逐 token 流；一次任务通常只有一条 text。
+fn dsh_events(value: &Value) -> Vec<RawAgentEvent> {
+    let event_type = value.get("type").and_then(Value::as_str).unwrap_or_default();
+    match event_type {
+        "session" => value
+            .get("sessionId")
+            .and_then(Value::as_str)
+            .filter(|id| !id.is_empty())
+            .map(|id| {
+                vec![RawAgentEvent {
+                    kind: "",
+                    content: None,
+                    tool_name: None,
+                    approval: None,
+                    payload: None,
+                    turn_id: None,
+                    backend_session_id: Some(id.to_string()),
+                }]
+            })
+            .unwrap_or_default(),
+        "status" => match value.get("phase").and_then(Value::as_str).unwrap_or_default() {
+            "turn_start" => vec![event("status", "DeepSeek Harness 已开始处理")],
+            _ => Vec::new(),
+        },
+        "text" => value
+            .get("text")
+            .and_then(Value::as_str)
+            .filter(|text| !text.is_empty())
+            .map(|text| vec![event("message_delta", text)])
+            .unwrap_or_default(),
+        "thinking" => value
+            .get("text")
+            .and_then(Value::as_str)
+            .filter(|text| !text.is_empty())
+            .map(|text| vec![event("reasoning_delta", text)])
+            .unwrap_or_default(),
+        "tool_call" => vec![RawAgentEvent {
+            kind: "tool_started",
+            content: value
+                .get("input")
+                .map(Value::to_string)
+                .filter(|text| text != "null"),
+            tool_name: value.get("tool").and_then(Value::as_str).map(str::to_string),
+            approval: None,
+            payload: Some(value.clone()),
+            turn_id: None,
+            backend_session_id: None,
+        }],
+        "tool_result" => {
+            let status = value
+                .get("status")
+                .and_then(Value::as_str)
+                .unwrap_or("completed");
+            let content = if status == "error" {
+                value.get("error").or_else(|| value.get("result"))
+            } else {
+                value.get("result")
+            };
+            vec![RawAgentEvent {
+                kind: "tool_completed",
+                content: content.map(Value::to_string),
+                tool_name: value.get("callId").and_then(Value::as_str).map(str::to_string),
+                approval: None,
+                payload: Some(value.clone()),
+                turn_id: None,
+                backend_session_id: None,
+            }]
+        }
+        "final" => {
+            let reason = value.get("reason").unwrap_or(&Value::Null);
+            match reason.get("kind").and_then(Value::as_str) {
+                Some("completed") => vec![RawAgentEvent {
+                    kind: "done",
+                    content: None,
+                    tool_name: None,
+                    approval: None,
+                    payload: Some(value.clone()),
+                    turn_id: None,
+                    backend_session_id: None,
+                }],
+                None => vec![event("error", "任务没有正常结束（缺少终止原因）")],
+                Some(other) => {
+                    let detail = reason
+                        .get("error")
+                        .and_then(|error| error.get("message"))
+                        .and_then(Value::as_str)
+                        .map(str::to_string)
+                        .or_else(|| reason.get("error").map(Value::to_string))
+                        .unwrap_or_else(|| format!("DeepSeek Harness 结束：{other}"));
+                    vec![event("error", friendly_agent_error(&detail))]
+                }
+            }
+        }
+        "error" => vec![event(
+            "error",
+            value
+                .get("message")
+                .and_then(Value::as_str)
+                .map(str::to_string)
+                .unwrap_or_else(|| value.to_string()),
+        )],
+        _ => Vec::new(),
+    }
 }

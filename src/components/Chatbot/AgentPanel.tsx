@@ -21,6 +21,7 @@ const BACKEND_LABELS: Record<AgentBackendId, string> = {
   codex: 'Codex',
   opencode: 'OpenCode',
   pi: 'Pi',
+  dsh: 'DeepSeek Harness',
 };
 
 const EFFORT_LABELS: Record<string, string> = {
@@ -59,6 +60,15 @@ export function AgentPanel({ onRuntimeChange }: AgentPanelProps) {
   const [profile, setProfile] = useState(settings.agent.backends[settings.agent.backend].profile);
   const [reasoningEffort, setReasoningEffort] = useState(settings.agent.backends[settings.agent.backend].reasoning_effort);
   const [contextPaths, setContextPaths] = useState<string[]>([]);
+  // 「当前目录已授权，直接写入」提示可被用户关闭，并记住选择（localStorage），
+  // 避免每次进入 Agent 都重复展示同一条安全提示。
+  const [directWriteBannerHidden, setDirectWriteBannerHidden] = useState<boolean>(() => {
+    try { return localStorage.getItem('zeditor.agent.hide-direct-write-banner') === '1'; } catch { return false; }
+  });
+  const dismissDirectWriteBanner = () => {
+    setDirectWriteBannerHidden(true);
+    try { localStorage.setItem('zeditor.agent.hide-direct-write-banner', '1'); } catch { /* ignored */ }
+  };
   const [editorContext, setEditorContext] = useState<AgentEditorContext | null>(null);
   const [selection, setSelection] = useState<{ key: string; excluded: string[] }>({ key: '', excluded: [] });
   const automaticDocumentKeyRef = useRef<string | null>(null);
@@ -341,6 +351,17 @@ export function AgentPanel({ onRuntimeChange }: AgentPanelProps) {
         {workspaceRoot && timeline.length === 0 && (
           <div className="agent-empty-state"><strong>让 Agent 在当前目录中处理任务</strong><span>Git 根目录使用隔离工作区，其他目录在当前授权范围内直接写入。</span></div>
         )}
+        {backends.length > 0 && availableBackends.length === 0 && (
+          <div className="agent-empty-state agent-unavailable-state">
+            <strong>未检测到可用的 Agent</strong>
+            <span>请安装 Pi / Claude Code / Codex / OpenCode 等 CLI，并在“设置 → AI 助手”中启用；只有本地 Agent 无法使用时才需要使用 AI 服务商。</span>
+            {settings.ai?.enabled && (
+              <button type="button" className="secondary-btn" onClick={() => onRuntimeChange('api')}>
+                改用 AI 服务商
+              </button>
+            )}
+          </div>
+        )}
         {timelineBlocks.map((block) => block.type === 'activity' ? (
           <AgentActivity key={block.id} items={block.items} />
         ) : (
@@ -374,8 +395,17 @@ export function AgentPanel({ onRuntimeChange }: AgentPanelProps) {
         {diagnostic && <div className="agent-diagnostic">{diagnostic}</div>}
       </div>
 
-      {activeSession?.direct_write && (
-        <div className="agent-direct-write-banner">当前目录已授权，Agent 修改会直接写入，不经过隔离审阅。</div>
+      {activeSession?.direct_write && !directWriteBannerHidden && (
+        <div className="agent-direct-write-banner">
+          <span>当前目录已授权，Agent 修改会直接写入，不经过隔离审阅。</span>
+          <button
+            type="button"
+            className="agent-direct-write-banner-close"
+            title="不再提示"
+            aria-label="隐藏此提示"
+            onClick={dismissDirectWriteBanner}
+          >×</button>
+        </div>
       )}
 
       {changes && changes.files.length > 0 && (
@@ -500,6 +530,13 @@ export function RuntimeTabs({ active, onChange }: { active: 'api' | 'agent'; onC
   const aiEnabled = useAppStore((state) => state.settings.ai.enabled);
   return (
     <div className="ai-runtime-tabs" role="tablist" aria-label="AI 运行模式">
+      <button className={`ai-runtime-tab agent ${active === 'agent' ? 'active' : ''}`} onClick={() => onChange('agent')} role="tab" aria-selected={active === 'agent'}>
+        <span className="ai-runtime-tab-icon" aria-hidden="true">
+          <AppIcon name="terminal" size={20}  />
+        </span>
+        <span className="ai-runtime-tab-label">Agent</span>
+        <small>Beta</small>
+      </button>
       {aiEnabled && (
         <button className={`ai-runtime-tab api ${active === 'api' ? 'active' : ''}`} onClick={() => onChange('api')} role="tab" aria-selected={active === 'api'}>
           <span className="ai-runtime-tab-icon" aria-hidden="true">
@@ -508,13 +545,6 @@ export function RuntimeTabs({ active, onChange }: { active: 'api' | 'agent'; onC
           <span className="ai-runtime-tab-label">AI 对话</span>
         </button>
       )}
-      <button className={`ai-runtime-tab agent ${active === 'agent' ? 'active' : ''}`} onClick={() => onChange('agent')} role="tab" aria-selected={active === 'agent'}>
-        <span className="ai-runtime-tab-icon" aria-hidden="true">
-          <AppIcon name="terminal" size={20}  />
-        </span>
-        <span className="ai-runtime-tab-label">Agent</span>
-        <small>Beta</small>
-      </button>
     </div>
   );
 }

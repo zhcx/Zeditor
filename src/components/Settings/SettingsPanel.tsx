@@ -112,6 +112,7 @@ const AGENT_BACKEND_OPTIONS = [
   { value: 'codex', label: 'Codex' },
   { value: 'opencode', label: 'OpenCode' },
   { value: 'pi', label: 'Pi' },
+  { value: 'dsh', label: 'DeepSeek Harness' },
 ];
 
 const REASONING_EFFORT_OPTIONS = [
@@ -1194,6 +1195,105 @@ export function SettingsPanel() {
           {activeTab === 'ai' && (
             <div className="settings-section">
               <SettingToggle
+                label="启用本地 Agent（Beta）"
+                description="调用本机 Claude Code、Codex、OpenCode 或 Pi，在隔离 Git worktree 中执行任务"
+                checked={localSettings.agent.enabled}
+                onChange={(checked) => setLocalSettings({
+                  ...localSettings,
+                  agent: { ...localSettings.agent, enabled: checked },
+                })}
+              />
+              {localSettings.agent.enabled && (
+                <div className="agent-settings-block">
+                  <div className="setting-item">
+                    <label>默认 Agent</label>
+                    <SettingsSelect
+                      ariaLabel="默认 Agent"
+                      value={localSettings.agent.backend}
+                      options={AGENT_BACKEND_OPTIONS.filter((option) => localSettings.agent.backends[option.value as AgentBackendId]?.enabled !== false)}
+                      onChange={(backend) => setLocalSettings({
+                        ...localSettings,
+                        agent: { ...localSettings.agent, backend: backend as AgentBackendId },
+                      })}
+                    />
+                  </div>
+                  {(Object.keys(localSettings.agent.backends) as AgentBackendId[]).map((backendId) => {
+                    const config = localSettings.agent.backends[backendId];
+                    const backendEnabled = config.enabled !== false;
+                    const status = agentStatuses.find((item) => item.id === backendId);
+                    const label = AGENT_BACKEND_OPTIONS.find((option) => option.value === backendId)?.label ?? backendId;
+                    const updateConfig = (patch: Partial<typeof config>) => setLocalSettings({
+                      ...localSettings,
+                      agent: { ...localSettings.agent, backends: { ...localSettings.agent.backends, [backendId]: { ...config, ...patch } } },
+                    });
+                    return (
+                      <section className={`agent-backend-settings${backendEnabled ? '' : ' agent-backend-off'}`} key={backendId}>
+                        <header>
+                          <strong>{label}</strong>
+                          <span className={status?.compatible ? 'ready' : ''}>{status ? (status.compatible ? status.version || '可用' : status.diagnostic) : '尚未检测'}</span>
+                          <button
+                            type="button"
+                            role="switch"
+                            aria-checked={backendEnabled}
+                            aria-label={`${backendEnabled ? '停用' : '启用'} ${label}`}
+                            className={`settings-switch${backendEnabled ? ' is-on' : ''}`}
+                            title={backendEnabled ? '停用该 Agent' : '启用该 Agent'}
+                            onClick={() => updateConfig({ enabled: !backendEnabled })}
+                          >
+                            <span className="settings-switch-thumb" />
+                          </button>
+                        </header>
+                        <div className="setting-item">
+                          <label>可执行文件</label>
+                          <input
+                            type="text"
+                            value={config.executable_path}
+                            disabled={!backendEnabled}
+                            onChange={(event) => updateConfig({ executable_path: event.target.value })}
+                            placeholder={backendId === 'codex' ? '留空则优先使用官方编辑器扩展或 PATH 中的 codex' : `留空则从 PATH 自动查找 ${backendId === 'claude_code' ? 'claude' : backendId}`}
+                          />
+                        </div>
+                        <div className="agent-backend-options">
+                          <div className="setting-item"><label>模型覆盖</label><input type="text" value={config.model} disabled={!backendEnabled} onChange={(event) => updateConfig({ model: event.target.value })} placeholder="使用 CLI 默认模型" /></div>
+                          {/* Pi 没有 agent/profile 概念，DeepSeek Harness 用 overlay 覆盖模型，均隐藏该项。 */}
+                          {backendId !== 'pi' && backendId !== 'dsh' && (
+                            <div className="setting-item"><label>{backendId === 'claude_code' ? 'Agent' : backendId === 'codex' ? 'Profile' : 'Agent 模式'}</label><input type="text" value={config.profile} disabled={!backendEnabled} onChange={(event) => updateConfig({ profile: event.target.value })} placeholder="使用 CLI 默认配置" /></div>
+                          )}
+                          {backendId !== 'opencode' && (
+                            <div className="setting-item">
+                              <label>推理强度</label>
+                              <SettingsSelect
+                                ariaLabel="推理强度"
+                                value={config.reasoning_effort}
+                                disabled={!backendEnabled}
+                                options={backendId === 'claude_code' ? [...REASONING_EFFORT_OPTIONS, { value: 'max', label: '最大' }] : REASONING_EFFORT_OPTIONS}
+                                onChange={(effort) => updateConfig({ reasoning_effort: effort })}
+                              />
+                            </div>
+                          )}
+                        </div>
+                      </section>
+                    );
+                  })}
+                  <button
+                    className="secondary-btn agent-detect-button"
+                    disabled={detectingAgents || !isTauriRuntime()}
+                    onClick={async () => {
+                      setDetectingAgents(true);
+                      try {
+                        const overrides = Object.fromEntries(Object.entries(localSettings.agent.backends).map(([id, config]) => [id, config.executable_path]));
+                        setAgentStatuses(await invoke<AgentBackendStatus[]>('agent_detect_backends', { overrides }));
+                      } finally {
+                        setDetectingAgents(false);
+                      }
+                    }}
+                  >
+                    {detectingAgents ? '检测中…' : '检测本机 Agent'}
+                  </button>
+                </div>
+              )}
+              <div className="settings-subsection-divider" />
+              <SettingToggle
                 label="启用 AI 助手"
                 description="开启对话、改写、校对与智能伴写能力"
                 checked={localSettings.ai.enabled}
@@ -1491,105 +1591,6 @@ export function SettingsPanel() {
                   ai: { ...localSettings.ai, companion_use_agent: checked },
                 })}
               />
-              <div className="settings-subsection-divider" />
-              <SettingToggle
-                label="启用本地 Agent（Beta）"
-                description="调用本机 Claude Code、Codex、OpenCode 或 Pi，在隔离 Git worktree 中执行任务"
-                checked={localSettings.agent.enabled}
-                onChange={(checked) => setLocalSettings({
-                  ...localSettings,
-                  agent: { ...localSettings.agent, enabled: checked },
-                })}
-              />
-              {localSettings.agent.enabled && (
-                <div className="agent-settings-block">
-                  <div className="setting-item">
-                    <label>默认 Agent</label>
-                    <SettingsSelect
-                      ariaLabel="默认 Agent"
-                      value={localSettings.agent.backend}
-                      options={AGENT_BACKEND_OPTIONS.filter((option) => localSettings.agent.backends[option.value as AgentBackendId]?.enabled !== false)}
-                      onChange={(backend) => setLocalSettings({
-                        ...localSettings,
-                        agent: { ...localSettings.agent, backend: backend as AgentBackendId },
-                      })}
-                    />
-                  </div>
-                  {(Object.keys(localSettings.agent.backends) as AgentBackendId[]).map((backendId) => {
-                    const config = localSettings.agent.backends[backendId];
-                    const backendEnabled = config.enabled !== false;
-                    const status = agentStatuses.find((item) => item.id === backendId);
-                    const label = AGENT_BACKEND_OPTIONS.find((option) => option.value === backendId)?.label ?? backendId;
-                    const updateConfig = (patch: Partial<typeof config>) => setLocalSettings({
-                      ...localSettings,
-                      agent: { ...localSettings.agent, backends: { ...localSettings.agent.backends, [backendId]: { ...config, ...patch } } },
-                    });
-                    return (
-                      <section className={`agent-backend-settings${backendEnabled ? '' : ' agent-backend-off'}`} key={backendId}>
-                        <header>
-                          <strong>{label}</strong>
-                          <span className={status?.compatible ? 'ready' : ''}>{status ? (status.compatible ? status.version || '可用' : status.diagnostic) : '尚未检测'}</span>
-                          <button
-                            type="button"
-                            role="switch"
-                            aria-checked={backendEnabled}
-                            aria-label={`${backendEnabled ? '停用' : '启用'} ${label}`}
-                            className={`settings-switch${backendEnabled ? ' is-on' : ''}`}
-                            title={backendEnabled ? '停用该 Agent' : '启用该 Agent'}
-                            onClick={() => updateConfig({ enabled: !backendEnabled })}
-                          >
-                            <span className="settings-switch-thumb" />
-                          </button>
-                        </header>
-                        <div className="setting-item">
-                          <label>可执行文件</label>
-                          <input
-                            type="text"
-                            value={config.executable_path}
-                            disabled={!backendEnabled}
-                            onChange={(event) => updateConfig({ executable_path: event.target.value })}
-                            placeholder={backendId === 'codex' ? '留空则优先使用官方编辑器扩展或 PATH 中的 codex' : `留空则从 PATH 自动查找 ${backendId === 'claude_code' ? 'claude' : backendId}`}
-                          />
-                        </div>
-                        <div className="agent-backend-options">
-                          <div className="setting-item"><label>模型覆盖</label><input type="text" value={config.model} disabled={!backendEnabled} onChange={(event) => updateConfig({ model: event.target.value })} placeholder="使用 CLI 默认模型" /></div>
-                          {/* Pi 没有 agent/profile 概念，隐藏该项以保持设置项与后端能力一致。 */}
-                          {backendId !== 'pi' && (
-                            <div className="setting-item"><label>{backendId === 'claude_code' ? 'Agent' : backendId === 'codex' ? 'Profile' : 'Agent 模式'}</label><input type="text" value={config.profile} disabled={!backendEnabled} onChange={(event) => updateConfig({ profile: event.target.value })} placeholder="使用 CLI 默认配置" /></div>
-                          )}
-                          {backendId !== 'opencode' && (
-                            <div className="setting-item">
-                              <label>推理强度</label>
-                              <SettingsSelect
-                                ariaLabel="推理强度"
-                                value={config.reasoning_effort}
-                                disabled={!backendEnabled}
-                                options={backendId === 'claude_code' ? [...REASONING_EFFORT_OPTIONS, { value: 'max', label: '最大' }] : REASONING_EFFORT_OPTIONS}
-                                onChange={(effort) => updateConfig({ reasoning_effort: effort })}
-                              />
-                            </div>
-                          )}
-                        </div>
-                      </section>
-                    );
-                  })}
-                  <button
-                    className="secondary-btn agent-detect-button"
-                    disabled={detectingAgents || !isTauriRuntime()}
-                    onClick={async () => {
-                      setDetectingAgents(true);
-                      try {
-                        const overrides = Object.fromEntries(Object.entries(localSettings.agent.backends).map(([id, config]) => [id, config.executable_path]));
-                        setAgentStatuses(await invoke<AgentBackendStatus[]>('agent_detect_backends', { overrides }));
-                      } finally {
-                        setDetectingAgents(false);
-                      }
-                    }}
-                  >
-                    {detectingAgents ? '检测中…' : '检测本机 Agent'}
-                  </button>
-                </div>
-              )}
             </div>
           )}
 

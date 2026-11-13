@@ -80,6 +80,7 @@ fn disabled_backends() -> Vec<AgentBackendId> {
         ("codex", AgentBackendId::Codex),
         ("opencode", AgentBackendId::Opencode),
         ("pi", AgentBackendId::Pi),
+        ("dsh", AgentBackendId::Dsh),
     ];
     let list = std::fs::read_to_string(path)
         .ok()
@@ -113,6 +114,7 @@ fn discover_quick_backends() -> Vec<(AgentBackendId, PathBuf)> {
     let disabled = disabled_backends();
     [
         AgentBackendId::Pi,
+        AgentBackendId::Dsh,
         AgentBackendId::ClaudeCode,
         AgentBackendId::Codex,
         AgentBackendId::Opencode,
@@ -327,6 +329,34 @@ fn build_quick_turn(
                 true,
             )
         }
+        // DeepSeek Harness：一次性 headless 调用，只读预设，提示词作为参数。
+        AgentBackendId::Dsh => {
+            if prompt.chars().count() > ARG_PROMPT_LIMIT_CHARS {
+                return Ok(None);
+            }
+            let overlay_dir = std::env::temp_dir()
+                .join(format!("zeditor-dsh-quick-{}", std::process::id()));
+            std::fs::create_dir_all(&overlay_dir)
+                .map_err(|error| format!("无法创建 DeepSeek Harness 配置目录：{error}"))?;
+            let overlay_path = overlay_dir.join("dsh-overlay.yml");
+            std::fs::write(&overlay_path, adapters::dsh_overlay(None, None))
+                .map_err(|error| format!("无法写入 DeepSeek Harness 配置：{error}"))?;
+            command.arg("headless");
+            command.arg("--patch").arg(&overlay_path);
+            command.args([
+                "--permission-mode",
+                "read-only",
+                "--approval-policy",
+                "never",
+                "--json",
+            ]);
+            command.arg(prompt);
+            (
+                adapters::AdapterProtocol::DshJson,
+                PromptChannel::Argument,
+                false,
+            )
+        }
     };
     command.stdin(if needs_stdin {
         Stdio::piped()
@@ -347,7 +377,7 @@ pub async fn complete(prompt: &str) -> Result<String, String> {
     let mut candidates = discover_quick_backends();
     if candidates.is_empty() {
         return Err(
-            "未检测到本地 Agent CLI。请在「设置 → AI 助手」启用 AI，或安装 Claude Code / Codex / OpenCode / Pi 任意一个命令行工具"
+            "未检测到本地 Agent CLI。请在「设置 → AI 助手」启用 AI，或安装 Claude Code / Codex / OpenCode / Pi / DeepSeek Harness 任意一个命令行工具"
                 .into(),
         );
     }

@@ -47,9 +47,20 @@ function ReasoningOptionIcon({ effort }: { effort: ReasoningEffort }) {
 
 export function AIChatbotPanel() {
   const aiEnabled = useAppStore((state) => state.settings.ai.enabled);
+  // Agent 是否已配置（启用本地 Agent 且至少有一个后端未被停用）。这是「默认优先
+  // Agent 模式」的判据：只要 Agent 可用，对话栏默认落在 Agent；仅当 Agent 不可用
+  // 时才回落到 AI 对话（并在其中提示添加 AI 服务商）。
+  const agentConfigured = useAppStore((state) => state.settings.agent.enabled
+    && Object.values(state.settings.agent.backends).some((item) => item.enabled !== false));
   const [runtime, setRuntime] = useState<AIRuntime>(() => {
-    try { return localStorage.getItem('zeditor.ai-runtime') === 'agent' ? 'agent' : 'api'; }
-    catch { return 'api'; }
+    try {
+      const stored = localStorage.getItem('zeditor.ai-runtime');
+      // 沿用用户上次的显式选择：只有 AI 助手可用时才尊重「AI 对话」；
+      // 其余情况一律默认 Agent（Agent 优先）。
+      if (stored === 'api' && aiEnabled) return 'api';
+      if (stored === 'agent') return 'agent';
+    } catch { /* ignored */ }
+    return agentConfigured || !aiEnabled ? 'agent' : 'api';
   });
   // AI 助手关闭时对话栏只保留 Agent 运行时（AI 对话标签随之隐藏）。
   const effectiveRuntime: AIRuntime = aiEnabled ? runtime : 'agent';

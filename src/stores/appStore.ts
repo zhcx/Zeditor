@@ -552,6 +552,7 @@ const defaultSettings: Settings = {
       codex: { executable_path: '', model: '', profile: '', reasoning_effort: '', enabled: true },
       opencode: { executable_path: '', model: '', profile: '', reasoning_effort: '', enabled: true },
       pi: { executable_path: '', model: '', profile: '', reasoning_effort: '', enabled: true },
+      dsh: { executable_path: '', model: '', profile: '', reasoning_effort: '', enabled: true },
     },
   },
   explorer: {
@@ -594,6 +595,7 @@ const normalizeSettings = (saved: Settings): Settings => ({
       codex: { ...defaultSettings.agent.backends.codex, ...saved.agent?.backends?.codex },
       opencode: { ...defaultSettings.agent.backends.opencode, ...saved.agent?.backends?.opencode },
       pi: { ...defaultSettings.agent.backends.pi, ...saved.agent?.backends?.pi },
+      dsh: { ...defaultSettings.agent.backends.dsh, ...saved.agent?.backends?.dsh },
     },
   },
   explorer: { ...defaultSettings.explorer, ...saved.explorer },
