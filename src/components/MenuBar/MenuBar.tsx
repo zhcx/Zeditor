@@ -930,9 +930,10 @@ export function MenuBar() {
         { label: t('插入图片…', language), action: () => requestInsert('image'), shortcut: 'Ctrl+Shift+I' },
         { label: t('插入表格', language), action: () => requestInsert('table'), shortcut: 'Ctrl+Shift+T' },
         { label: t('插入思维导图', language), action: () => requestInsert('markmap') },
-        { label: '插入片段…', action: () => { setActiveMenu(null); useLibraryStore.getState().setDialog('snippets'); } },
-        { label: '用模板新建…', action: () => { setActiveMenu(null); useLibraryStore.getState().setDialog('templates'); } },
-        { label: '复制为富文本', action: () => { setActiveMenu(null); void copyActiveAsRichText(); } },
+        { divider: true, label: '' },
+        { label: t('插入片段…', language), action: () => { setActiveMenu(null); useLibraryStore.getState().setDialog('snippets'); }, shortcut: 'Ctrl+Alt+S' },
+        { label: t('用模板新建…', language), action: () => { setActiveMenu(null); useLibraryStore.getState().setDialog('templates'); }, shortcut: 'Ctrl+Alt+N' },
+        { label: t('复制为富文本', language), action: () => { setActiveMenu(null); void copyActiveAsRichText(); }, shortcut: 'Ctrl+Alt+C' },
         { label: t('AI 指令面板', language), action: () => { setActiveMenu(null); window.dispatchEvent(new CustomEvent('zeditor-ai-palette')); }, shortcut: 'Ctrl+J' },
         { label: t('检查链接', language), action: () => { setActiveMenu(null); window.dispatchEvent(new CustomEvent('zeditor-check-links')); }, shortcut: 'Ctrl+Alt+V' },
         {

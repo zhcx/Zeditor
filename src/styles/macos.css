@@ -276,11 +276,79 @@ html[data-platform='macos'].window-resizing .app-workbench {
   backdrop-filter: none !important;
 }
 
+/* ── 资料库弹窗 / Toast / 链接预览（vnote P0 新增组件） ─────────────── */
+
+/* 弹窗按 macOS 面板度量：更圆的圆角、半像素描边、柔和外阴影，
+   强调按钮与焦点环跟随系统蓝（AppKit systemBlue），与原生对话框一致。 */
+html[data-platform='macos'] .library-modal {
+  border: 0.5px solid var(--ui-border-strong);
+  border-radius: 12px;
+  box-shadow: var(--ui-shadow-dialog);
+}
+
+html[data-platform='macos'] .library-modal-overlay {
+  backdrop-filter: blur(2px);
+}
+
+html[data-platform='macos'] :is(.library-icon-btn, .library-btn, .library-search) {
+  border-radius: 7px;
+}
+
+html[data-platform='macos'] .library-btn.primary {
+  background: var(--macos-accent);
+  border-color: var(--macos-accent);
+}
+
+html[data-platform='macos'] .library-btn.primary:hover {
+  background: var(--macos-accent-strong);
+  filter: none;
+}
+
+html[data-platform='macos'] .library-card {
+  border-radius: 9px;
+}
+
+html[data-platform='macos'] :is(.library-search, .library-field input, .library-field textarea):focus {
+  border-color: var(--macos-accent);
+  box-shadow: var(--macos-focus-ring);
+}
+
+/* Toast / 链接预览用系统材质：半透明底 + 背景模糊，随窗口内容透出。 */
+html[data-platform='macos'] .zeditor-toast {
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--ui-bg-app) 84%, transparent);
+  color: var(--ui-text-primary);
+  -webkit-backdrop-filter: blur(12px) saturate(180%);
+  backdrop-filter: blur(12px) saturate(180%);
+  box-shadow: var(--ui-shadow-dialog);
+}
+
+html[data-platform='macos'] .zeditor-link-preview {
+  border-radius: 10px;
+  -webkit-backdrop-filter: blur(14px) saturate(180%);
+  backdrop-filter: blur(14px) saturate(180%);
+}
+
+html[data-platform='macos'] .zeditor-link-preview-host {
+  color: var(--macos-accent);
+}
+
+html[data-platform='macos'] .heading-number {
+  color: var(--macos-accent);
+}
+
 /* 系统「降低透明度」（辅助功能）开启时去掉毛玻璃：与原生 App 遵循同一开关，
    同时避免旧款 Intel Mac 在对话框上持续合成模糊层。 */
 @media (prefers-reduced-transparency: reduce) {
   html[data-platform='macos'] .modal-overlay,
-  html[data-platform='macos'] .settings-overlay {
+  html[data-platform='macos'] .settings-overlay,
+  html[data-platform='macos'] .library-modal-overlay,
+  html[data-platform='macos'] .zeditor-toast,
+  html[data-platform='macos'] .zeditor-link-preview {
     backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+  }
+  html[data-platform='macos'] .zeditor-toast {
+    background: var(--ui-bg-panel);
   }
 }

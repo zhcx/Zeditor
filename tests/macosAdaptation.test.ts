@@ -231,6 +231,12 @@ test('system menu labels are localized for every supported language family', () 
   assert.equal(translateUiText('编辑', 'ja'), '編集');
   assert.equal(translateUiText('编辑', 'ko'), '편집');
   assert.equal(translateUiText('编辑', 'zh-CN'), '编辑');
+  // 资料库命令（vnote P0）在系统菜单里也要跟随界面语言，而不是固定中文。
+  assert.equal(translateUiText('插入片段…', 'en'), 'Insert snippet…');
+  assert.equal(translateUiText('用模板新建…', 'en'), 'New from template…');
+  assert.equal(translateUiText('复制为富文本', 'en'), 'Copy as rich text');
+  assert.equal(translateUiText('用模板新建…', 'ja'), 'テンプレートから新規作成…');
+  assert.equal(translateUiText('复制为富文本', 'ko'), '서식 있는 텍스트로 복사');
 });
 
 test('macOS integration hides the in-window menubar and falls back when it fails', () => {
@@ -425,4 +431,41 @@ test('macOS signs the nested helper before the application executable', () => {
   assert.deepEqual(binaries, ['zeditor_mcp_server', 'zeditor']);
   // Tauri identifies the main binary by package name, independently of manifest order.
   assert.match(manifest, /^\[package\]\r?\nname = "zeditor"/);
+});
+
+test('macOS native chrome covers the library, toast and link-preview surfaces', () => {
+  const css = read('src/styles/macos.css');
+  const library = read('src/components/Library/library.css');
+  const richText = read('src/utils/richTextCopy.ts');
+
+  // 资料库弹窗 / Toast / 链接预览都接入 macOS 外观层（系统圆角、阴影、强调色、材质）。
+  assert.match(css, /html\[data-platform='macos'\] \.library-modal \{/);
+  assert.match(css, /html\[data-platform='macos'\] \.zeditor-toast \{/);
+  assert.match(css, /html\[data-platform='macos'\] \.zeditor-link-preview \{/);
+  assert.match(css, /html\[data-platform='macos'\] \.heading-number \{/);
+
+  // 弹窗此前用未定义的 --panel/--fg，暗色主题下仍是白底深字；改用主题令牌修正。
+  assert.match(library, /var\(--ui-bg-panel/);
+  assert.match(library, /var\(--ui-text-primary/);
+  assert.doesNotMatch(library, /var\(--panel,/);
+  assert.doesNotMatch(library, /var\(--fg,/);
+
+  // WKWebView 在缺少用户手势时会拒绝带 text/html 的 ClipboardItem，必须回退 execCommand。
+  assert.match(richText, /fallbackCopyHtml/);
+  assert.match(richText, /catch/);
+});
+
+test('library commands are localized and expose macOS accelerators in the menu model', () => {
+  const menuBar = read('src/components/MenuBar/MenuBar.tsx');
+  // 不再硬编码中文：走 t() 才能在系统菜单栏跟随界面语言。
+  assert.match(menuBar, /t\('插入片段…', language\)/);
+  assert.match(menuBar, /t\('用模板新建…', language\)/);
+  assert.match(menuBar, /t\('复制为富文本', language\)/);
+  // 原生菜单通过 toAccelerator 注册 ⌥⌘S / ⌥⌘N / ⌥⌘C。
+  assert.equal(toAccelerator('Ctrl+Alt+S'), 'CmdOrCtrl+Alt+S');
+  assert.equal(toAccelerator('Ctrl+Alt+N'), 'CmdOrCtrl+Alt+N');
+  assert.equal(toAccelerator('Ctrl+Alt+C'), 'CmdOrCtrl+Alt+C');
+  assert.match(menuBar, /shortcut: 'Ctrl\+Alt\+S'/);
+  assert.match(menuBar, /shortcut: 'Ctrl\+Alt\+N'/);
+  assert.match(menuBar, /shortcut: 'Ctrl\+Alt\+C'/);
 });

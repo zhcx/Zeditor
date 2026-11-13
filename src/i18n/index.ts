@@ -309,6 +309,9 @@ const entries: Record<string, Translation> = {
   '正在检查本地链接...': { 'zh-CN': '正在检查本地链接...', 'zh-TW': '正在檢查本地連結...', en: 'Checking local links...' },
   '链接检查完成，未发现问题': { 'zh-CN': '链接检查完成，未发现问题', 'zh-TW': '連結檢查完成，未發現問題', en: 'Link check finished, no issues found' },
   '链接检查需要文档落盘路径，请先保存文档。': { 'zh-CN': '链接检查需要文档落盘路径，请先保存文档。', 'zh-TW': '連結檢查需要文件已儲存的路徑，請先儲存文件。', en: 'Link check needs a saved file path; save the document first.' },
+  '插入片段…': { 'zh-CN': '插入片段…', 'zh-TW': '插入片段…', en: 'Insert snippet…' },
+  '用模板新建…': { 'zh-CN': '用模板新建…', 'zh-TW': '用範本新建…', en: 'New from template…' },
+  '复制为富文本': { 'zh-CN': '复制为富文本', 'zh-TW': '複製為富文字', en: 'Copy as rich text' },
 };
 
 const englishEntries: Record<string, string> = {
@@ -355,6 +358,7 @@ const englishEntries: Record<string, string> = {
   '思维导图': 'Mind map', 'Markmap 思维导图': 'Markmap mind map', '插入思维导图': 'Insert mind map', '适应视图': 'Fit view', '导出 PNG': 'Export PNG',
   '正在渲染思维导图…': 'Rendering mind map…', '思维导图渲染失败': 'Mind map failed to render', '导出 PNG 失败': 'Failed to export PNG', '已取消导出': 'Export cancelled',
   '思维导图内容为空：请用 Markdown 标题（# / ## / ###）组织层级。': 'The mind map is empty: organize the hierarchy with Markdown headings (# / ## / ###).',
+  '插入片段…': 'Insert snippet…', '用模板新建…': 'New from template…', '复制为富文本': 'Copy as rich text',
 };
 
 // Phrase-level conversion is used for remaining Simplified Chinese labels so
@@ -364,6 +368,7 @@ const englishEntries: Record<string, string> = {
 // missing keys fall back to English, then to the raw source.
 const japaneseEntries: Record<string, string> = {
   // macOS 系统菜单栏
+  "插入片段…": "スニペットを挿入…", "用模板新建…": "テンプレートから新規作成…", "复制为富文本": "リッチテキストとしてコピー",
   "编辑": "編集", "窗口": "ウインドウ", "帮助": "ヘルプ", "服务": "サービス",
   "显示全部": "すべてを表示", "隐藏": "隠す", "隐藏其他": "ほかを隠す", "退出": "終了",
   "退出 Zeditor": "Zeditorを終了", "隐藏 Zeditor": "Zeditorを隠す",
@@ -725,6 +730,7 @@ const japaneseEntries: Record<string, string> = {
 
 const koreanEntries: Record<string, string> = {
   // macOS 시스템 메뉴 막대
+  "插入片段…": "스니펫 삽입…", "用模板新建…": "템플릿에서 새로 만들기…", "复制为富文本": "서식 있는 텍스트로 복사",
   "编辑": "편집", "窗口": "윈도우", "帮助": "도움말", "服务": "서비스",
   "显示全部": "모두 보기", "隐藏": "가리기", "隐藏其他": "기타 가리기", "退出": "종료",
   "退出 Zeditor": "Zeditor 종료", "隐藏 Zeditor": "Zeditor 가리기",

@@ -84,6 +84,8 @@
 - **Info.plist**：补 `LSApplicationCategoryType`、`NSHumanReadableCopyright`。
 - **更新检查**：识别 `_universal.dmg`；更新弹窗区分 DMG / AppImage / deb，并给出 macOS 安装说明。
 - **Agent CLI**：macOS GUI 进程补 `/opt/homebrew/bin`、`/usr/local/bin`、volta/cargo/nvm 路径。
+- **资料库界面**：片段/模板/置顶弹窗、复制富文本 Toast、链接预览浮层纳入 macOS 外观层（系统圆角、材质、强调色；`prefers-reduced-transparency` 去毛玻璃）；`library.css` 改用 `--ui-*` 主题令牌，修复暗色主题下白底深字。
+- **资料库命令**：功能菜单「插入片段… / 用模板新建… / 复制为富文本」已接入 `t()` 本地化，并注册原生加速键 ⌥⌘S / ⌥⌘N / ⌥⌘C；`copyRichHtml` 在 WKWebView 拒绝 `ClipboardItem` 时回退 `execCommand`。
 
 ## 4. 性能优化
 
@@ -127,7 +129,7 @@
 
 ## 7. 回归红线（改动前先看测试）
 
-- `tests/macosAdaptation.test.ts`：原生菜单结构、`edit.find` 加速键、`signingIdentity === '-'`、macOS 窗口配置与权限、`⌘` 文案。**改原生菜单项必须同步 `predefined` 数组断言。**
+- `tests/macosAdaptation.test.ts`：原生菜单结构、`edit.find` 加速键、`signingIdentity === '-'`、macOS 窗口配置与权限、`⌘` 文案。**改原生菜单项必须同步 `predefined` 数组断言。** 另含资料库弹窗/Toast/链接预览的 macOS 外观与「插入片段/用模板新建/复制为富文本」加速键断言。
 - `tests/editorDisplayWiring.test.ts`：`findHeadingFoldSections(blockDocument.blocks)`、`showFoldingControls: folding ? ...`、`markdownFoldingRanges(model.getLinesContent(`、`guides: { indentation: display.indentGuides` 等源码接线断言。
 - `tests/wysiwygBlocks.test.ts`：局部更新必须与全文重新分块逐字段一致；结构变化必须回退。
 - `tests/wysiwygInline.test.ts`：普通文本转义（`[`/`]`）、wiki 链接、脚注引用回写。

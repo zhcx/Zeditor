@@ -43,12 +43,22 @@ function inlineStyledHtml(bodyHtml: string): string {
 
 export async function copyRichHtml(html: string): Promise<void> {
   if (navigator.clipboard && typeof ClipboardItem !== 'undefined') {
-    await navigator.clipboard.write([new ClipboardItem({
-      'text/html': new Blob([html], { type: 'text/html' }),
-      'text/plain': new Blob([html.replace(/<[^>]+>/g, '')], { type: 'text/plain' }),
-    })]);
-    return;
+    try {
+      await navigator.clipboard.write([new ClipboardItem({
+        'text/html': new Blob([html], { type: 'text/html' }),
+        'text/plain': new Blob([html.replace(/<[^>]+>/g, '')], { type: 'text/plain' }),
+      })]);
+      return;
+    } catch {
+      // WKWebView（macOS）以及非安全上下文 / 缺少用户手势的浏览器可能拒绝
+      // 带 text/html 的 ClipboardItem 写入；退回 execCommand 兜底，避免
+      // 「复制为富文本」在 macOS 上直接抛错。
+    }
   }
+  fallbackCopyHtml(html);
+}
+
+function fallbackCopyHtml(html: string): void {
   const holder = document.createElement('div');
   holder.contentEditable = 'true';
   holder.style.position = 'fixed';
