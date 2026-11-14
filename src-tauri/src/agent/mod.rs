@@ -786,8 +786,11 @@ async fn spawn_turn(
         approval_mode: session.approval_mode,
         read_only: session.read_only,
         backend_session_id: session.backend_session_id.as_deref(),
-        permission_bridge: matches!(session.backend, AgentBackendId::ClaudeCode | AgentBackendId::Dsh)
-            .then_some((current_exe.as_path(), runtime.permission_dir.as_path())),
+        permission_bridge: matches!(
+            session.backend,
+            AgentBackendId::ClaudeCode | AgentBackendId::Dsh
+        )
+        .then_some((current_exe.as_path(), runtime.permission_dir.as_path())),
     })?;
     let protocol = launch.protocol;
     let mut child = launch
@@ -1237,10 +1240,9 @@ async fn process_raw_event(
             .get("messages")
             .and_then(Value::as_array)
             .and_then(|items| {
-                items
-                    .iter()
-                    .rev()
-                    .find(|message| message.get("role").and_then(Value::as_str) == Some("assistant"))
+                items.iter().rev().find(|message| {
+                    message.get("role").and_then(Value::as_str) == Some("assistant")
+                })
             });
         let failed = final_assistant
             .and_then(|message| message.get("stopReason"))
@@ -1830,8 +1832,8 @@ async fn finish_session(
     // 避免每回合重新冷启动 node 并加载扩展。仅在「完成」态对 Pi 保留子进程与
     // stdin；出错、被中断或其余一次性后端（Claude/Codex/OpenCode）仍照旧结束。
     let protocol = *runtime.protocol.lock().await;
-    let keep_alive = status == AgentSessionStatus::Completed
-        && protocol == Some(AdapterProtocol::PiRpc);
+    let keep_alive =
+        status == AgentSessionStatus::Completed && protocol == Some(AdapterProtocol::PiRpc);
     if !keep_alive {
         if let Some(child) = runtime.child.lock().await.as_mut() {
             let _ = child.start_kill();
@@ -2244,7 +2246,10 @@ mod tests {
         let raw = "429: {\"type\":\"rate_limit_error\",\"message\":\"OpenCode Zen Free: Free usage limit reached.\"}";
         let friendly = adapters::friendly_agent_error(raw);
         assert!(friendly.contains("限流"), "got {friendly}");
-        assert!(friendly.contains("Free usage limit reached"), "got {friendly}");
+        assert!(
+            friendly.contains("Free usage limit reached"),
+            "got {friendly}"
+        );
     }
 
     #[test]
@@ -2284,7 +2289,10 @@ mod tests {
         let overlay = std::fs::read_to_string(dir.join("dsh-overlay.yml")).unwrap();
         assert!(overlay.contains("provider: magpie"), "overlay: {overlay}");
         assert!(overlay.contains("workbuddy/deepseek-v4.1-flash"));
-        assert!(overlay.contains("reasoningEffort: \"high\""), "overlay: {overlay}");
+        assert!(
+            overlay.contains("reasoningEffort: \"high\""),
+            "overlay: {overlay}"
+        );
         fs::remove_dir_all(&dir).ok();
     }
 

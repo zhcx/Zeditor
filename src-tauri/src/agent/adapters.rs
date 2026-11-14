@@ -186,7 +186,12 @@ pub fn build_launch(config: AdapterLaunchConfig<'_>) -> Result<AdapterLaunch, St
                 "workspace-write"
             };
             // headless 没有实时审批通道，一律 never 由策略自动决定。
-            command.args(["--permission-mode", permission_mode, "--approval-policy", "never"]);
+            command.args([
+                "--permission-mode",
+                permission_mode,
+                "--approval-policy",
+                "never",
+            ]);
             if let Some(value) = backend_session_id.filter(|value| !value.is_empty()) {
                 command.args(["--session-id", value]);
             }
@@ -223,7 +228,10 @@ pub(crate) fn dsh_overlay(model: Option<&str>, reasoning_effort: Option<&str>) -
     let mut yaml = format!(
         "- id: agent-default-model\n  config:\n    provider: magpie\n    model: {model:?}\n"
     );
-    if let Some(effort) = reasoning_effort.map(str::trim).filter(|value| !value.is_empty()) {
+    if let Some(effort) = reasoning_effort
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    {
         yaml.push_str(&format!("    reasoningEffort: {effort:?}\n"));
     }
     yaml
@@ -1014,10 +1022,19 @@ fn localize_pi_retry(value: &Value) -> String {
 /// 从一段错误文本（可能是 `429: {json}` 或纯 JSON）里解析出可读的限流提示。
 /// 返回形如「约 9 分 46 秒后自动恢复」的短句；非限流错误返回 None。
 pub fn throttle_hint(error_message: &str) -> Option<String> {
-    let json_part = error_message.splitn(2, ": ").nth(1).unwrap_or(error_message);
+    let json_part = error_message
+        .split_once(": ")
+        .map(|x| x.1)
+        .unwrap_or(error_message);
     let value: Value = serde_json::from_str(json_part).ok()?;
-    let code = value.get("code").and_then(Value::as_str).unwrap_or_default();
-    let text = value.get("message").and_then(Value::as_str).unwrap_or_default();
+    let code = value
+        .get("code")
+        .and_then(Value::as_str)
+        .unwrap_or_default();
+    let text = value
+        .get("message")
+        .and_then(Value::as_str)
+        .unwrap_or_default();
     if code == "bili_throttle_hold" || text.contains("holding outbound sends") {
         if let Some(secs) = extract_hold_secs(text) {
             return Some(format!("约 {} 后自动恢复", humanize_secs(secs)));
@@ -1029,10 +1046,19 @@ pub fn throttle_hint(error_message: &str) -> Option<String> {
 
 /// 把 pi 的原始错误文本转成用户可读的中文说明，用于回合最终失败时展示。
 pub fn friendly_agent_error(error_message: &str) -> String {
-    let json_part = error_message.splitn(2, ": ").nth(1).unwrap_or(error_message);
+    let json_part = error_message
+        .split_once(": ")
+        .map(|x| x.1)
+        .unwrap_or(error_message);
     if let Ok(value) = serde_json::from_str::<Value>(json_part) {
-        let code = value.get("code").and_then(Value::as_str).unwrap_or_default();
-        let text = value.get("message").and_then(Value::as_str).unwrap_or_default();
+        let code = value
+            .get("code")
+            .and_then(Value::as_str)
+            .unwrap_or_default();
+        let text = value
+            .get("message")
+            .and_then(Value::as_str)
+            .unwrap_or_default();
         if code == "bili_throttle_hold" || text.contains("holding outbound sends") {
             if let Some(secs) = extract_hold_secs(text) {
                 return format!(
@@ -1097,7 +1123,10 @@ pub fn backend_overrides(
 // tool_result / final / error。text 与 thinking 是已提交消息的投影，不是
 // 逐 token 流；一次任务通常只有一条 text。
 fn dsh_events(value: &Value) -> Vec<RawAgentEvent> {
-    let event_type = value.get("type").and_then(Value::as_str).unwrap_or_default();
+    let event_type = value
+        .get("type")
+        .and_then(Value::as_str)
+        .unwrap_or_default();
     match event_type {
         "session" => value
             .get("sessionId")
@@ -1115,7 +1144,11 @@ fn dsh_events(value: &Value) -> Vec<RawAgentEvent> {
                 }]
             })
             .unwrap_or_default(),
-        "status" => match value.get("phase").and_then(Value::as_str).unwrap_or_default() {
+        "status" => match value
+            .get("phase")
+            .and_then(Value::as_str)
+            .unwrap_or_default()
+        {
             "turn_start" => vec![event("status", "DeepSeek Harness 已开始处理")],
             _ => Vec::new(),
         },
@@ -1137,7 +1170,10 @@ fn dsh_events(value: &Value) -> Vec<RawAgentEvent> {
                 .get("input")
                 .map(Value::to_string)
                 .filter(|text| text != "null"),
-            tool_name: value.get("tool").and_then(Value::as_str).map(str::to_string),
+            tool_name: value
+                .get("tool")
+                .and_then(Value::as_str)
+                .map(str::to_string),
             approval: None,
             payload: Some(value.clone()),
             turn_id: None,
@@ -1156,7 +1192,10 @@ fn dsh_events(value: &Value) -> Vec<RawAgentEvent> {
             vec![RawAgentEvent {
                 kind: "tool_completed",
                 content: content.map(Value::to_string),
-                tool_name: value.get("callId").and_then(Value::as_str).map(str::to_string),
+                tool_name: value
+                    .get("callId")
+                    .and_then(Value::as_str)
+                    .map(str::to_string),
                 approval: None,
                 payload: Some(value.clone()),
                 turn_id: None,

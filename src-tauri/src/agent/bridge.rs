@@ -334,8 +334,8 @@ fn build_quick_turn(
             if prompt.chars().count() > ARG_PROMPT_LIMIT_CHARS {
                 return Ok(None);
             }
-            let overlay_dir = std::env::temp_dir()
-                .join(format!("zeditor-dsh-quick-{}", std::process::id()));
+            let overlay_dir =
+                std::env::temp_dir().join(format!("zeditor-dsh-quick-{}", std::process::id()));
             std::fs::create_dir_all(&overlay_dir)
                 .map_err(|error| format!("无法创建 DeepSeek Harness 配置目录：{error}"))?;
             let overlay_path = overlay_dir.join("dsh-overlay.yml");
@@ -624,7 +624,10 @@ mod tests {
     #[test]
     fn dsh_bridge_overlay_disables_tools() {
         let yaml = adapters::dsh_bridge_overlay();
-        assert!(yaml.contains("provider: magpie"), "overlay missing model config");
+        assert!(
+            yaml.contains("provider: magpie"),
+            "overlay missing model config"
+        );
         assert!(
             yaml.contains("- id: tool-bash\n  disabled: true"),
             "overlay must disable tool-bash: {yaml}"
