@@ -144,6 +144,14 @@ export function Preview({ className, style, onScrollContainerReady, onContentRen
     // 播放器自己处理播放、进度与音量点击，预览不再抢走这些操作。
     if (clickedElement?.closest('video, audio')) return;
 
+    // 拖选文本后 mouseup 也会冒泡成 click：此时不能跳到源码行、也不能抢焦点，
+    // 否则预览里的选区会被立刻清空，导致复制等操作失效。
+    const activeSelection = window.getSelection();
+    if (activeSelection && !activeSelection.isCollapsed) {
+      const anchor = activeSelection.anchorNode;
+      if (anchor && containerRef.current?.contains(anchor)) return;
+    }
+
     // 任务列表交互：点击预览区 checkbox 直接切换编辑器源码中的 [ ] ↔ [x]
     if (clickedElement instanceof HTMLInputElement && clickedElement.matches('input.task-list-item-checkbox')) {
       event.preventDefault();

@@ -22,16 +22,68 @@ interface MonacoLike {
   };
 }
 
-/** 把 #rgb/#rrggbb 或 rgb()/rgba() 调整为指定透明度的 rgba()；无法解析时原样返回。 */
-function alpha(color: string, a: number): string {
-  const hex = /^#([0-9a-f]{6})$/i.exec(color.trim());
-  if (hex) {
-    const n = parseInt(hex[1], 16);
-    return `rgba(${(n >> 16) & 255}, ${(n >> 8) & 255}, ${n & 255}, ${a})`;
+interface Rgba {
+  r: number;
+  g: number;
+  b: number;
+  a: number;
+}
+
+/** 解析 #rgb/#rrggbb/#rrggbbaa 与 rgb()/rgba()；失败返回 null。 */
+function parseColor(color: string | undefined): Rgba | null {
+  if (!color) return null;
+  const value = color.trim();
+  const short = /^#([0-9a-f])([0-9a-f])([0-9a-f])$/i.exec(value);
+  if (short) {
+    return {
+      r: parseInt(short[1] + short[1], 16),
+      g: parseInt(short[2] + short[2], 16),
+      b: parseInt(short[3] + short[3], 16),
+      a: 1,
+    };
   }
-  const rgb = /^rgba?\(\s*([\d.]+)\s*,\s*([\d.]+)\s*,\s*([\d.]+)(?:\s*,\s*[\d.]+)?\s*\)$/.exec(color.trim());
-  if (rgb) return `rgba(${rgb[1]}, ${rgb[2]}, ${rgb[3]}, ${a})`;
-  return color;
+  const hex = /^#([0-9a-f]{2})([0-9a-f]{2})([0-9a-f]{2})([0-9a-f]{2})?$/i.exec(value);
+  if (hex) {
+    return {
+      r: parseInt(hex[1], 16),
+      g: parseInt(hex[2], 16),
+      b: parseInt(hex[3], 16),
+      a: hex[4] === undefined ? 1 : parseInt(hex[4], 16) / 255,
+    };
+  }
+  const rgb = /^rgba?\(\s*([\d.]+)\s*,\s*([\d.]+)\s*,\s*([\d.]+)(?:\s*,\s*([\d.]+))?\s*\)$/i.exec(value);
+  if (rgb) {
+    return {
+      r: Number(rgb[1]),
+      g: Number(rgb[2]),
+      b: Number(rgb[3]),
+      a: rgb[4] === undefined ? 1 : Number(rgb[4]),
+    };
+  }
+  return null;
+}
+
+function channel(n: number): string {
+  return Math.round(Math.min(255, Math.max(0, n))).toString(16).padStart(2, '0');
+}
+
+/**
+ * Monaco 主题色只接受 #rrggbb / #rrggbbaa；传 rgba() 等 CSS 颜色会被判为非法
+ * 并回退成纯红（#ff0000）。这里统一归一化成十六进制，否则选区、当前行、
+ * 查找高亮等会全部显示成红色。
+ */
+function toMonacoColor(color: string | undefined, fallback: string): string {
+  const parsed = parseColor(color);
+  if (!parsed) return fallback;
+  const base = `#${channel(parsed.r)}${channel(parsed.g)}${channel(parsed.b)}`;
+  return parsed.a >= 0.999 ? base : base + channel(parsed.a * 255);
+}
+
+/** 把颜色调整为指定不透明度的 #rrggbbaa；无法解析时原样返回。 */
+function alpha(color: string, a: number): string {
+  const parsed = parseColor(color);
+  if (!parsed) return color;
+  return toMonacoColor(`rgba(${parsed.r}, ${parsed.g}, ${parsed.b}, ${a})`, '#00000000');
 }
 
 export function buildMonacoTheme(theme: ThemeDefinition): MonacoThemeData {
@@ -169,11 +221,17 @@ export function buildMonacoTheme(theme: ThemeDefinition): MonacoThemeData {
     { token: 'md-quote', foreground: s.comment },
   ];
 
+  // 主题 vars 里混有 rgba() 等写法，Monaco 只认十六进制，统一归一化。
+  const monacoColors: Record<string, string> = {};
+  for (const [key, value] of Object.entries(colors)) {
+    monacoColors[key] = toMonacoColor(value, '#00000000');
+  }
+
   return {
     base: dark ? 'vs-dark' : 'vs',
     inherit: true,
     rules,
-    colors,
+    colors: monacoColors,
   };
 }
 

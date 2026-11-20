@@ -1438,10 +1438,25 @@ export class WysiwygSession {
     const rawIndex = host?.dataset.blockIndex;
     if (rawIndex === undefined) return null;
     const index = Number(rawIndex);
-    const collected = this.collectBlock(index) ?? this.collectBlockForOffset(index);
+    // 表格单元格在实时 DOM 序列化出的偏移与源码有细微差异，必须走带修正的版本。
+    const collected = this.collectBlockForOffset(index) ?? this.collectBlock(index);
     if (!collected) return null;
     const atom = element?.closest('.wiki-link[data-wiki-target], .footnote-ref[data-footnote-name]');
-    const local = this.containerOffsetOfPoint(collected, atom ?? target, 0);
+    // event.target 只是元素（表格里是 <td>），配合偏移 0 拿不到行内插入点；
+    // 优先按鼠标坐标解析真实文本位置，否则右键恒落在元素开头，已有选区会被误判为「在选区外」而折叠。
+    let pointNode: Node = atom ?? target;
+    let pointOffset = 0;
+    if (!atom) {
+      const owner = element?.ownerDocument as (Document & { caretRangeFromPoint?: (x: number, y: number) => Range | null }) | undefined;
+      const caret = owner && typeof owner.caretRangeFromPoint === 'function'
+        ? owner.caretRangeFromPoint(event.clientX, event.clientY)
+        : null;
+      if (caret && collected.element.contains(caret.startContainer)) {
+        pointNode = caret.startContainer;
+        pointOffset = caret.startOffset;
+      }
+    }
+    const local = this.containerOffsetOfPoint(collected, pointNode, pointOffset);
     if (local === null) return null;
     return { index, offset: collected.block.offset + withEol(collected.serialized.markdown.slice(0, local), this.document.eol).length + (atom ? 1 : 0), blockStart: collected.block.offset };
   }
