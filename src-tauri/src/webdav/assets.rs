@@ -164,6 +164,8 @@ pub fn referenced_paths(text: &str) -> Result<Vec<String>, String> {
 fn reject_link(path: &Path) -> Result<(), String> {
     let metadata = fs::symlink_metadata(path)
         .map_err(|e| format!("无法检查附件路径 {}：{e}", path.display()))?;
+    // 只有 Windows 分支会继续改写 linked；非 Windows 平台按只读处理。
+    #[cfg_attr(not(windows), allow(unused_mut))]
     let mut linked = metadata.file_type().is_symlink();
     #[cfg(windows)]
     {
