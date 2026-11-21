@@ -23,6 +23,8 @@ import { prepareMarkdownPaste } from '../../utils/markdownPaste';
 import { applyTableAction, insertTable, type TableAction } from '../../utils/markdownTable';
 import { stripInlineFormatting } from '../../utils/inlineFormatting';
 import { applyHeadingLevel } from '../../utils/headingFormatting';
+import { markdownSelectionToPlainText } from '../../utils/plainText';
+import { readClipboardText, writeClipboardHtml, writeClipboardText } from '../../utils/clipboard';
 
 export interface EditorContextMenuState {
   x: number;
@@ -191,9 +193,11 @@ export interface EditorContextMenuProps {
   onInsertImage: () => void;
   /** 剪贴板读取被宿主拒绝时的兜底（Monaco 用它触发编辑器内的粘贴命令）。 */
   onPasteFallback?: () => void;
+  /** 「粘贴为纯文本」的模式特化实现：所见即所得需要转义，源码模式插入原文即可。 */
+  onPastePlain?: (text: string) => boolean;
 }
 
-export function EditorContextMenu({ state, onClose, onInsertImage, onPasteFallback }: EditorContextMenuProps) {
+export function EditorContextMenu({ state, onClose, onInsertImage, onPasteFallback, onPastePlain }: EditorContextMenuProps) {
   // 控制器取自 store：两种编辑器都会把当前控制器写进 editorView，
   // 菜单因此不需要宿主传参（也避免宿主在渲染期读 ref）。
   const controller = useAppStore(store => store.editorView);
@@ -237,7 +241,7 @@ export function EditorContextMenu({ state, onClose, onInsertImage, onPasteFallba
     element.style.top = `${Math.max(8, Math.min(state.y, maxTop))}px`;
   }, [state]);
 
-  const runContextMenuAction = useCallback(async (action: 'undo' | 'redo' | 'cut' | 'copy' | 'copyHtml' | 'copyPlain' | 'paste' | 'selectAll') => {
+  const runContextMenuAction = useCallback(async (action: 'undo' | 'redo' | 'cut' | 'copy' | 'copyHtml' | 'copyPlain' | 'paste' | 'pastePlain' | 'selectAll') => {
     close();
     if (!controller) return;
     if (action === 'undo' || action === 'redo') {
@@ -245,46 +249,48 @@ export function EditorContextMenu({ state, onClose, onInsertImage, onPasteFallba
       else controller.redo();
     } else if (action === 'selectAll') {
       controller.setSelection(0, controller.getValue().length);
-    } else if (action === 'paste') {
-      try {
-        const text = await navigator.clipboard.readText();
-        const selection = controller.getSelection();
-        controller.replaceRange(selection.from, selection.to, text, {
-          from: selection.from + text.length,
-          to: selection.from + text.length,
-        });
-      } catch {
+    } else if (action === 'paste' || action === 'pastePlain') {
+      // macOS（WKWebView）会拒绝 navigator.clipboard.readText()，统一走三级降级；
+      // 读不到时必须给出提示，否则用户只看到菜单关掉、光标不动。
+      const text = await readClipboardText();
+      if (text === null) {
+        setStatus('error', `无法读取剪贴板，请按 ${formatShortcut('Ctrl+V')} 直接粘贴`);
         onPasteFallback?.();
+        controller.focus();
+        return;
       }
+      const selection = controller.getSelection();
+      if (action === 'pastePlain' && onPastePlain?.(text)) {
+        controller.focus();
+        return;
+      }
+      controller.replaceRange(selection.from, selection.to, text, {
+        from: selection.from + text.length,
+        to: selection.from + text.length,
+      });
     } else {
       const selection = controller.getSelection();
       const selectedText = controller.getText(selection.from, selection.to);
       if (!selectedText) return;
       const clipboardText = action === 'copyPlain'
-        ? selectedText
-            .replace(/!\[([^\]]*)\]\([^)]+\)/g, '$1')
-            .replace(/\[([^\]]+)\]\([^)]+\)/g, '$1')
-            .replace(/^#{1,6}\s+/gm, '')
-            .replace(/(?:\*\*|__|~~|`)/g, '')
+        ? markdownSelectionToPlainText(selectedText)
         : action === 'copyHtml'
           ? sanitizeRenderedHtml(contextMenuMarkdown.render(selectedText))
           : selectedText;
-      try {
-        if (action === 'copyHtml' && typeof ClipboardItem !== 'undefined' && navigator.clipboard.write) {
-          await navigator.clipboard.write([new ClipboardItem({
-            'text/html': new Blob([clipboardText], { type: 'text/html' }),
-            'text/plain': new Blob([clipboardText], { type: 'text/plain' }),
-          })]);
-        } else {
-          await navigator.clipboard.writeText(clipboardText);
-        }
-        if (action === 'cut') controller.replaceRange(selection.from, selection.to, '');
-      } catch {
-        // 剪贴板权限被宿主拒绝：保留选区，用户可改用快捷键。
+      const written = action === 'copyHtml'
+        // 富文本写入在 WKWebView 上会退到 execCommand，避免「复制为 HTML」静默失败。
+        ? await writeClipboardHtml(clipboardText, markdownSelectionToPlainText(selectedText))
+        : await writeClipboardText(clipboardText);
+      if (!written) {
+        setStatus('error', '无法写入剪贴板，请改用快捷键');
+        controller.focus();
+        return;
       }
+      // 只有真正写进剪贴板才删除原文，避免「剪切」丢内容。
+      if (action === 'cut') controller.replaceRange(selection.from, selection.to, '');
     }
     controller.focus();
-  }, [close, controller, onPasteFallback]);
+  }, [close, controller, onPasteFallback, onPastePlain, setStatus]);
 
   const polishContextSelection = useCallback(async () => {
     close();
@@ -444,7 +450,7 @@ export function EditorContextMenu({ state, onClose, onInsertImage, onPasteFallba
       <button type="button" role="menuitem" onClick={() => void runContextMenuAction('paste')}>
         <span className="editor-context-menu-icon tone-green"><ContextMenuIcon name="paste" /></span><span className="editor-context-menu-label">{t('粘贴', language)}</span><kbd>{formatShortcut('Ctrl+V')}</kbd>
       </button>
-      <button type="button" role="menuitem" onClick={() => void runContextMenuAction('paste')}>
+      <button type="button" role="menuitem" onClick={() => void runContextMenuAction('pastePlain')}>
         <span className="editor-context-menu-icon"><ContextMenuIcon name="text" /></span><span className="editor-context-menu-label">粘贴为纯文本</span><kbd>{formatShortcut('Ctrl+Shift+V')}</kbd>
       </button>
       <button type="button" role="menuitem" onClick={() => void runContextMenuAction('selectAll')}>

@@ -1079,6 +1079,22 @@ export class WysiwygSession {
   }
 
   /**
+   * 「粘贴为纯文本」：把剪贴板文字按字面量插入。Markdown 标记（* _ ` # > 等）
+   * 一律转义，避免所见即所得把粘贴内容里的语法重新解析成格式。
+   */
+  pastePlainText(text: string): boolean {
+    if (!text) return false;
+    this.prepareExternalEdit();
+    const { from, to } = this.getSelectionOffsets();
+    const index = this.blockIndexAtOffset(from);
+    const inTable = index !== null && this.document.blocks[index]?.kind === 'table';
+    const normalized = inTable ? text.replace(/[\r\n]+/g, ' ') : text;
+    const escaped = escapeInlineText(normalized, { escapeLineStart: true, escapePipes: inTable });
+    this.replaceRange(from, to, withEol(prepareMarkdownPaste(escaped, this.document.source, from, to), this.document.eol));
+    return true;
+  }
+
+  /**
    * 选区粘贴的 DOM 路径。返回 false 表示当前形态不支持（块级内容、表格跨格等），
    * 调用方退回源码替换。
    */
@@ -1447,10 +1463,22 @@ export class WysiwygSession {
     let pointNode: Node = atom ?? target;
     let pointOffset = 0;
     if (!atom) {
-      const owner = element?.ownerDocument as (Document & { caretRangeFromPoint?: (x: number, y: number) => Range | null }) | undefined;
-      const caret = owner && typeof owner.caretRangeFromPoint === 'function'
+      const owner = element?.ownerDocument as (Document & {
+        caretRangeFromPoint?: (x: number, y: number) => Range | null;
+        caretPositionFromPoint?: (x: number, y: number) => { offsetNode: Node; offset: number } | null;
+      }) | undefined;
+      let caret: Range | null = typeof owner?.caretRangeFromPoint === 'function'
         ? owner.caretRangeFromPoint(event.clientX, event.clientY)
         : null;
+      // Safari / 旧版 WebKit 之外的环境（Firefox）只有标准版 caretPositionFromPoint。
+      if (!caret && typeof owner?.caretPositionFromPoint === 'function') {
+        const position = owner.caretPositionFromPoint(event.clientX, event.clientY);
+        if (position) {
+          caret = owner.createRange();
+          caret.setStart(position.offsetNode, position.offset);
+          caret.collapse(true);
+        }
+      }
       if (caret && collected.element.contains(caret.startContainer)) {
         pointNode = caret.startContainer;
         pointOffset = caret.startOffset;

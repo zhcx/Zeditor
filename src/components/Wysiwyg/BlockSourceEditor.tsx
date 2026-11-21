@@ -6,6 +6,7 @@
  * 键盘交互与围栏代码块一致：Esc 取消、Ctrl+Enter 保存、Tab 缩进两个空格。
  */
 import { useEffect, useRef, useState } from 'react';
+import { formatShortcut } from '../../utils/platformShortcuts';
 
 export interface BlockSourceEditorProps {
   title: string;
@@ -28,7 +29,7 @@ export function BlockSourceEditor({ title, source, onApply, onClose, initialSele
     <div className="wysiwyg-source-layer" contentEditable={false}>
       <div className="wysiwyg-source-toolbar">
         <strong>{title}</strong>
-        <span>Ctrl+Enter 保存 · Esc 取消</span>
+        <span>{formatShortcut('Ctrl+Enter 保存 · Esc 取消')}</span>
         <button type="button" onClick={onClose}>取消</button>
         <button type="button" className="is-primary" onClick={() => onApply(draft)}>保存</button>
       </div>

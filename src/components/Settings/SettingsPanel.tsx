@@ -704,7 +704,7 @@ export function SettingsPanel() {
               <div className="setting-item">
                 <label>
                   编辑模式
-                  <small>源码对照 / 所见即所得，切换后立即生效，也可用 Ctrl+Alt+M 切换</small>
+                  <small>{formatShortcut('源码对照 / 所见即所得，切换后立即生效，也可用 Ctrl+Alt+M 切换')}</small>
                 </label>
                 <SettingsSelect
                   ariaLabel="编辑模式"

@@ -42,6 +42,66 @@ pub fn reveal_in_file_manager(path: String) -> Result<(), String> {
     Ok(())
 }
 
+/// 读取系统剪贴板文本。
+///
+/// macOS 的 WKWebView 常常不授予 `navigator.clipboard.readText()` 权限，右键菜单
+/// 的「粘贴」会因此拿不到内容。这里调用各平台自带的命令行工具，作为前端剪贴板
+/// 降级链的最后一环（Chromium/WebKit Clipboard API → execCommand → 本命令）。
+#[tauri::command]
+pub fn read_clipboard_text() -> Result<String, String> {
+    #[cfg(target_os = "macos")]
+    {
+        let output = std::process::Command::new("pbpaste")
+            .arg("-Prefer")
+            .arg("txt")
+            .output()
+            .map_err(|error| format!("无法读取剪贴板：{error}"))?;
+        if !output.status.success() {
+            return Err("无法读取剪贴板：pbpaste 执行失败".into());
+        }
+        return String::from_utf8(output.stdout)
+            .map_err(|error| format!("剪贴板内容不是有效文本：{error}"));
+    }
+    #[cfg(target_os = "windows")]
+    {
+        let output = std::process::Command::new("powershell")
+            .args(["-NoProfile", "-Command", "Get-Clipboard -Raw"])
+            .output()
+            .map_err(|error| format!("无法读取剪贴板：{error}"))?;
+        if !output.status.success() {
+            return Err("无法读取剪贴板：Get-Clipboard 执行失败".into());
+        }
+        return Ok(String::from_utf8_lossy(&output.stdout)
+            .trim_end_matches(['\r', '\n'])
+            .to_string());
+    }
+    #[cfg(all(unix, not(target_os = "macos")))]
+    {
+        // Wayland 优先 wl-paste，X11 退到 xclip / xsel。
+        let candidates: [(&str, &[&str]); 3] = [
+            ("wl-paste", &["--no-newline"]),
+            ("xclip", &["-selection", "clipboard", "-o"]),
+            ("xsel", &["--clipboard", "--output"]),
+        ];
+        let mut last_error =
+            String::from("系统中未找到可用的剪贴板工具（wl-paste / xclip / xsel）");
+        for (program, args) in candidates {
+            match std::process::Command::new(program).args(args).output() {
+                Ok(output) if output.status.success() => {
+                    return Ok(String::from_utf8_lossy(&output.stdout).to_string());
+                }
+                Ok(_) => last_error = format!("{program} 执行失败"),
+                Err(error) => last_error = format!("{program} 不可用：{error}"),
+            }
+        }
+        return Err(format!("无法读取剪贴板：{last_error}"));
+    }
+    #[allow(unreachable_code)]
+    {
+        Err("当前平台不支持读取剪贴板".into())
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct UpdateInfo {
     pub has_update: bool,

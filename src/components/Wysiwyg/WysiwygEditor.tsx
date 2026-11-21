@@ -1262,6 +1262,10 @@ export function WysiwygEditor() {
           state={contextMenu}
           onClose={() => setContextMenu(null)}
           onInsertImage={() => setImageInsertOpen(true)}
+          // macOS 上 navigator.clipboard.readText() 常被 WKWebView 拒绝：
+          // 兜底回焦编辑面，用户按 ⌘V 时走原生 paste 事件的 handlePaste。
+          onPasteFallback={() => session.focus()}
+          onPastePlain={(text) => session.pastePlainText(text)}
         />
       )}
       {imageInsertOpen && (

@@ -227,6 +227,7 @@ fn main() {
             commands::save_file_content_checked,
             commands::read_file_base64,
             commands::reveal_in_file_manager,
+            commands::read_clipboard_text,
             commands::resolve_wiki_link,
             commands::find_wiki_backlinks,
             commands::link_preview,

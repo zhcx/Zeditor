@@ -1,5 +1,6 @@
 import { renderMarkdownToHtml } from './markdownPipeline';
 import { enhanceExportHtml } from './exportDiagrams';
+import { writeClipboardHtml } from './clipboard';
 
 /**
  * 把 Markdown 复制为「富文本」，可直接粘贴到 Word / 企业微信 / 飞书 / Notion /
@@ -41,37 +42,9 @@ function inlineStyledHtml(bodyHtml: string): string {
   return root.outerHTML;
 }
 
+/** 复制富文本 HTML（WKWebView 拒绝 ClipboardItem 时由共享剪贴板工具退回 execCommand）。 */
 export async function copyRichHtml(html: string): Promise<void> {
-  if (navigator.clipboard && typeof ClipboardItem !== 'undefined') {
-    try {
-      await navigator.clipboard.write([new ClipboardItem({
-        'text/html': new Blob([html], { type: 'text/html' }),
-        'text/plain': new Blob([html.replace(/<[^>]+>/g, '')], { type: 'text/plain' }),
-      })]);
-      return;
-    } catch {
-      // WKWebView（macOS）以及非安全上下文 / 缺少用户手势的浏览器可能拒绝
-      // 带 text/html 的 ClipboardItem 写入；退回 execCommand 兜底，避免
-      // 「复制为富文本」在 macOS 上直接抛错。
-    }
-  }
-  fallbackCopyHtml(html);
-}
-
-function fallbackCopyHtml(html: string): void {
-  const holder = document.createElement('div');
-  holder.contentEditable = 'true';
-  holder.style.position = 'fixed';
-  holder.style.left = '-9999px';
-  holder.innerHTML = html;
-  document.body.append(holder);
-  const range = document.createRange();
-  range.selectNodeContents(holder);
-  const selection = window.getSelection();
-  selection?.removeAllRanges();
-  selection?.addRange(range);
-  document.execCommand('copy');
-  holder.remove();
+  await writeClipboardHtml(html, html.replace(/<[^>]+>/g, ''));
 }
 
 /** 渲染 Markdown 为带内联样式的富文本 HTML（图表按浅色转内联 PNG）。 */

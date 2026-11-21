@@ -437,6 +437,7 @@ test('macOS native chrome covers the library, toast and link-preview surfaces', 
   const css = read('src/styles/macos.css');
   const library = read('src/components/Library/library.css');
   const richText = read('src/utils/richTextCopy.ts');
+  const clipboard = read('src/utils/clipboard.ts');
 
   // 资料库弹窗 / Toast / 链接预览都接入 macOS 外观层（系统圆角、阴影、强调色、材质）。
   assert.match(css, /html\[data-platform='macos'\] \.library-modal \{/);
@@ -451,8 +452,11 @@ test('macOS native chrome covers the library, toast and link-preview surfaces', 
   assert.doesNotMatch(library, /var\(--fg,/);
 
   // WKWebView 在缺少用户手势时会拒绝带 text/html 的 ClipboardItem，必须回退 execCommand。
-  assert.match(richText, /fallbackCopyHtml/);
-  assert.match(richText, /catch/);
+  // 降级链已收敛到共享剪贴板工具，富文本复制直接复用它。
+  assert.match(richText, /writeClipboardHtml\(/);
+  assert.match(clipboard, /function legacyCopyHtml/);
+  assert.match(clipboard, /document\.execCommand\('copy'\)/);
+  assert.match(clipboard, /catch/);
 });
 
 test('library commands are localized and expose macOS accelerators in the menu model', () => {
