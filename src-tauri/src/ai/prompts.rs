@@ -40,6 +40,21 @@ pub fn get_prompt(
     context: Option<&str>,
     settings: &AISettings,
 ) -> String {
+    let base = get_base_prompt(action, content, context, settings);
+    let project_context = settings.project_context.trim();
+    if project_context.is_empty() {
+        return base;
+    }
+    let bounded: String = project_context.chars().take(24_000).collect();
+    format!("---项目写作上下文---\n以下内容来自用户明确配置的项目文件，优先用于保持事实、术语和文风一致：\n{bounded}\n---项目写作上下文结束---\n\n{base}")
+}
+
+fn get_base_prompt(
+    action: PromptAction,
+    content: &str,
+    context: Option<&str>,
+    settings: &AISettings,
+) -> String {
     match action {
         PromptAction::Proofread => format!(
             r#"你是一个文本校对助手。校对下面的文本，只找真实的拼写、语法、标点错误。
@@ -233,5 +248,33 @@ pub fn get_prompt(
                 instruction, content
             )
         }
+    }
+}
+
+#[cfg(test)]
+mod project_context_tests {
+    use super::*;
+    use crate::commands::AISettings;
+
+    fn settings(context: &str) -> AISettings {
+        serde_json::from_value(serde_json::json!({
+            "enabled": true, "provider": "custom", "api_key": "x", "api_endpoint": "https://example.com", "model": "m",
+            "temperature": 0.5, "auto_suggest": false, "suggest_delay": 800, "writing_style": "default", "custom_style_prompt": "",
+            "provider_api_keys": "", "project_context": context
+        })).unwrap()
+    }
+
+    #[test]
+    fn project_context_is_prepended_to_writing_and_chat_prompts() {
+        let prompt = get_prompt(PromptAction::Rewrite, "正文", None, &settings("保持中文"));
+        assert!(prompt.starts_with("---项目写作上下文---"));
+        assert!(prompt.contains("保持中文"));
+        assert!(prompt.contains("正文"));
+    }
+
+    #[test]
+    fn empty_project_context_does_not_change_prompt() {
+        let prompt = get_prompt(PromptAction::Summarize, "正文", None, &settings("  "));
+        assert!(!prompt.contains("项目写作上下文"));
     }
 }

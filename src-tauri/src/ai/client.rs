@@ -2038,6 +2038,7 @@ mod tests {
             proofread_use_agent: true,
             companion_use_agent: false,
             agent_fallback_enabled: true,
+            project_context: String::new(),
         }
     }
 

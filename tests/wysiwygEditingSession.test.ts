@@ -3,8 +3,9 @@ import assert from 'node:assert/strict';
 import { WysiwygSession } from '../src/components/Wysiwyg/wysiwygSession.ts';
 import { createWysiwygController } from '../src/components/Wysiwyg/WysiwygController.ts';
 
-function editingFixture(source = '原文') {
+function editingFixture(source = '原文', isCurrentDocument?: () => boolean) {
   let domText = source;
+  let caretOffset = source.length;
   const persisted: string[] = [];
   const text = { nodeType: 3, get textContent() { return domText; }, parentNode: null as unknown, parentElement: null as unknown };
   const host = {
@@ -17,7 +18,7 @@ function editingFixture(source = '原文') {
   const element = host as unknown as HTMLElement;
   const surface = { ownerDocument: { getSelection: () => ({
     rangeCount: 1,
-    getRangeAt: () => ({ startContainer: text, startOffset: domText.length, collapsed: true }),
+    getRangeAt: () => ({ startContainer: text, startOffset: caretOffset, collapsed: true }),
   }) } } as unknown as HTMLElement;
   const session = new WysiwygSession(source, {
     onSourceChange: text => persisted.push(text),
@@ -25,9 +26,13 @@ function editingFixture(source = '原文') {
   });
   session.setAccessors({ getSurface: () => surface, getBlockElement: () => element });
   const controller = createWysiwygController({
-    session, getScrollDOM: () => null, getCaretRange: () => null, focus: () => undefined,
+    session, isCurrentDocument, getScrollDOM: () => null, getCaretRange: () => null, focus: () => undefined,
   });
-  return { session, controller, persisted, setText: (text: string) => { domText = text; } };
+  return {
+    session, controller, persisted,
+    setText: (text: string) => { domText = text; caretOffset = text.length; },
+    setCaret: (offset: number) => { caretOffset = offset; },
+  };
 }
 
 it('identical range replacements preserve redo and do not add an undo step', () => {
@@ -65,6 +70,51 @@ it('writes IME text when the final input event precedes compositionend', async (
   assert.deepEqual(fixture.persisted, ['中文，符号！']);
   assert.equal(fixture.session.getSnapshot().skipRenderIndex, 0);
   assert.equal(fixture.session.getSnapshot().renderRevision, 0, '普通输入保留当前 DOM');
+});
+
+it('restores the pre-input caret when undoing composition', () => {
+  const fixture = editingFixture('bc');
+  fixture.setCaret(1);
+  fixture.session.markComposing(true, 0);
+  fixture.setText('bac');
+  fixture.setCaret(2);
+  fixture.session.handleInput(0);
+  fixture.session.flushWriteBack();
+  assert.equal(fixture.session.getSource(), 'bac');
+  assert.equal(fixture.session.handleUndo(), true);
+  assert.equal(fixture.session.getSource(), 'bc');
+  assert.equal(fixture.session.getCaretOffset(), 1);
+});
+
+it('restores the pre-input caret when undoing ordinary typing', () => {
+  const fixture = editingFixture('bc');
+  fixture.setCaret(1);
+  fixture.session.beginInput(0);
+  fixture.setText('bac');
+  fixture.setCaret(2);
+  fixture.session.handleInput(0);
+  fixture.session.handleUndo();
+  assert.equal(fixture.session.getSource(), 'bc');
+  assert.equal(fixture.session.getCaretOffset(), 1);
+});
+
+it('does not settle block-source drafts for passive controller reads', () => {
+  const session = new WysiwygSession('正文', { onSourceChange: () => undefined, insertClipboardImage: async () => false });
+  let localFlushes = 0;
+  const controller = createWysiwygController({
+    session,
+    flushLocalEdits: () => { localFlushes += 1; },
+    getScrollDOM: () => null,
+    getCaretRange: () => null,
+    focus: () => undefined,
+  });
+  controller.getValue();
+  controller.getSelection();
+  controller.getText(0, 2);
+  controller.state.sliceDoc(0, 2);
+  assert.equal(localFlushes, 0, 'toolbar/status reads must not resolve or discard a source draft');
+  controller.flushPendingEdits?.();
+  assert.equal(localFlushes, 1);
 });
 
 it('does not apply undo over a newer external document update', () => {
@@ -172,6 +222,14 @@ it('continues a newly typed list even before the input debounce fires', () => {
   fixture.session.handleEnter(0);
   assert.equal(fixture.session.getSource(), '- item\n- ');
   assert.equal(fixture.session.getCaretOffset(), '- item\n- '.length);
+});
+
+it('rejects writes from a controller whose document is no longer current', () => {
+  const fixture = editingFixture('abc', () => false);
+  fixture.controller.dispatch({ changes: { from: 0, to: 3, insert: 'wrong document' } });
+  assert.equal(fixture.session.getSource(), 'abc');
+  fixture.controller.replaceRange(0, 0, 'wrong');
+  assert.equal(fixture.session.getSource(), 'abc');
 });
 
 it('constructs toolbar transactions without applying them twice', () => {

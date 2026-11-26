@@ -11426,3 +11426,32 @@ html[data-theme] .preview-container,
 
 .image-size-preset:hover { background: var(--surface-muted); }
 .image-local-hint { margin: 0; color: var(--text-secondary); font-size: 12px; }
+
+/* First-stage inline AI review: decorations never alter document source. */
+.monaco-ghost-text { color: var(--text-muted); opacity: .72; font-style: italic; }
+.monaco-review-deletion { background: rgba(220, 80, 80, .16); text-decoration: line-through; }
+.monaco-review-deletion-line { background: rgba(220, 80, 80, .12); }
+.monaco-review-addition { background: rgba(60, 170, 105, .14); }
+.monaco-review-added-text { color: #3b9b69; }
+.monaco-review-comment { border-bottom: 2px solid #d39a32; background: rgba(211, 154, 50, .12); }
+.monaco-review-comment.stale { border-bottom-style: dashed; opacity: .65; }
+
+.wysiwyg-review-layer { position: absolute; inset: 0; z-index: 4; pointer-events: none; }
+.wysiwyg-review-decoration { position: absolute; max-width: min(680px, 80vw); padding: 1px 5px; border-radius: 3px; white-space: pre-wrap; font: inherit; }
+.wysiwyg-review-decoration.ghost { color: var(--text-muted); opacity: .72; font-style: italic; }
+.wysiwyg-review-decoration.addition { color: #2f8757; background: rgba(60, 170, 105, .16); }
+.wysiwyg-review-decoration.deletion { color: #b55454; background: rgba(220, 80, 80, .14); text-decoration: line-through; }
+.wysiwyg-review-decoration.comment,
+.wysiwyg-review-decoration.comment-stale { color: #9a6b16; background: rgba(211, 154, 50, .18); font-size: 11px; }
+.wysiwyg-review-decoration.comment-stale { border: 1px dashed currentColor; opacity: .7; }
+
+.ai-diff-hunks { display: grid; gap: 10px; max-height: 280px; overflow: auto; margin: 12px 0; }
+.ai-diff-hunk { border: 1px solid var(--border-color); border-radius: 6px; overflow: hidden; }
+.ai-diff-hunk > header,
+.ai-diff-hunk > footer { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 7px 10px; }
+.ai-diff-hunk > header span { color: var(--text-muted); font-size: 11px; }
+.ai-diff-hunk-lines { display: grid; grid-template-columns: 1fr 1fr; }
+.ai-diff-hunk-lines pre { margin: 0; padding: 8px 10px; white-space: pre-wrap; }
+.ai-diff-hunk-lines .removed { background: rgba(220, 80, 80, .1); }
+.ai-diff-hunk-lines .added { background: rgba(60, 170, 105, .1); }
+.ai-diff-hunk > footer { justify-content: flex-end; }

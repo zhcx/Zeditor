@@ -22,6 +22,7 @@ import { fileVersionsMatch, type FileVersion } from '../utils/fileVersion';
 import { assessLargeDocument, modeForDocument, type DocumentPerformance } from '../utils/largeDocument';
 import { documentHistory } from '../utils/documentHistory';
 import { editorSurface, editorViewMemory } from '../utils/editorViewMemory';
+import { resolveEditorControllerSurface } from '../utils/editorTransitionSafety';
 
 function assessDocumentPerformance(content: string, bytes?: number, previous?: DocumentPerformance): DocumentPerformance | undefined {
   const assessment = assessLargeDocument(content, bytes);
@@ -29,7 +30,7 @@ function assessDocumentPerformance(content: string, bytes?: number, previous?: D
 }
 
 function rememberEditorPosition(id: string | null, mode: WorkspaceMode, editor: EditorController | null, nextMode?: WorkspaceMode): void {
-  const surface = editorSurface(mode);
+  const surface = resolveEditorControllerSurface(mode, editor);
   if (!id || !editor || !surface || (editor.tabId !== undefined && editor.tabId !== id)) return;
   documentHistory.get(id).boundary();
   const selection = editor.getSelection();
@@ -284,6 +285,8 @@ export interface Tab {
   id: string;
   title: string;
   path: string | null;
+  /** 另存为的源路径；用于区分“复制到新文件”和真正的重命名。 */
+  saveAsFromPath?: string;
   content: string;
   modified: boolean;
   encoding?: TextEncoding;
@@ -320,7 +323,7 @@ interface CheckedSaveResult {
 
 export type UploadStatus = 'idle' | 'uploading' | 'success' | 'error';
 export type ConversionStatus = 'idle' | 'converting' | 'success' | 'error';
-export type SettingsTab = 'appearance' | 'editor' | 'image' | 'export' | 'ai' | 'web_search' | 'explorer' | 'workflow' | 'converter' | 'cloud' | 'mcp';
+export type SettingsTab = 'appearance' | 'editor' | 'image' | 'export' | 'ai' | 'web_search' | 'explorer' | 'workflow' | 'converter' | 'cloud' | 'mcp' | 'project_context' | 'extensions';
 
 export interface ConverterModuleStatus {
   state: 'missing' | 'installing' | 'ready' | 'update_available' | 'incompatible' | 'corrupt' | 'error';
@@ -1307,7 +1310,7 @@ export const useAppStore = create<AppState>((set, get) => ({
         }
         set(state => ({
           tabs: applySavedTab(state.tabs, tabId, path, tab.content, encoding, outcome.fileVersion || undefined)
-            .map(item => item.id === tabId ? { ...item, externalChangePending: false } : item),
+            .map(item => item.id === tabId ? { ...item, externalChangePending: false, saveAsFromPath: tab.path !== path ? tab.path ?? undefined : undefined } : item),
           currentFile: state.activeTabId === tabId ? path : state.currentFile,
           fileConflict: state.fileConflict?.tabId === tabId ? null : state.fileConflict,
         }));

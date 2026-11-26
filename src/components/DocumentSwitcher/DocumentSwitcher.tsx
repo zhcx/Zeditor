@@ -16,11 +16,13 @@ import './document-switcher.css';
 import { t } from '../../i18n';
 import { useLibraryStore } from '../../stores/libraryStore';
 import { copyActiveAsRichText, togglePinPath } from '../../services/libraryActions';
+import { usePluginStore } from '../../stores/pluginStore';
+import { executePluginCommand } from '../../utils/pluginActions';
 
 interface DocumentSwitcherProps {
   onClose: () => void;
   /** 「搜索当前文档」命令需要把侧边栏切到搜索视图，该状态由 App 持有，故以回调注入。 */
-  onRevealActivityView?: (view: 'explorer' | 'search') => void;
+  onRevealActivityView?: (view: 'explorer' | 'search' | 'review' | 'knowledge') => void;
   /** 查询值与输入框都在标题栏（App 持有），面板只负责展示结果。 */
   query: string;
   onQueryChange: (value: string) => void;
@@ -277,6 +279,7 @@ export function DocumentSwitcher({ onClose, onRevealActivityView, query, onQuery
   const activeDiffs = diffState?.fingerprint === fingerprint ? diffState.diffs : [];
   const contentGroups = useMemo(() => groupMatchesByPath(activeSearch?.matches ?? []), [activeSearch]);
   const visibleGroups = useMemo(() => limitGroups(contentGroups), [contentGroups]);
+  const pluginCommands = usePluginStore(state => state.commands());
   // 快捷命令：全部指向应用里已有的动作（store 方法或既有 CustomEvent），
   // 标签与快捷键沿用「文件 / 功能」菜单的用词，保证与菜单一致。
   const commands = useMemo<QuickCommand[]>(() => [
@@ -295,8 +298,14 @@ export function DocumentSwitcher({ onClose, onRevealActivityView, query, onQuery
     { id: 'new-from-template', label: '用模板新建', run: () => useLibraryStore.getState().setDialog('templates') },
     { id: 'copy-rich-text', label: '复制为富文本', run: () => { void copyActiveAsRichText(); } },
     { id: 'toggle-pin', label: '置顶当前文档', run: () => { const state = useAppStore.getState(); const tab = state.tabs.find(item => item.id === state.activeTabId); if (tab?.path) togglePinPath(tab.path, tab.title, 'file'); } },
+    { id: 'split-document', label: '双文档分栏', run: () => window.dispatchEvent(new CustomEvent('zeditor-toggle-split')) },
+    { id: 'knowledge', label: '知识管理', shortcut: 'Ctrl+Shift+K', run: () => window.dispatchEvent(new CustomEvent('zeditor-open-knowledge')) },
+    { id: 'local-history', label: '本地版本历史', run: () => window.dispatchEvent(new CustomEvent('zeditor-open-history')) },
+    { id: 'project-context', label: '项目 AI 配置', run: () => { useAppStore.getState().setSettingsTab('project_context'); useAppStore.getState().setSettingsOpen(true); } },
+    { id: 'safe-plugins', label: '安全插件', run: () => { useAppStore.getState().setSettingsTab('extensions'); useAppStore.getState().setSettingsOpen(true); } },
+    ...pluginCommands.map(command => ({ id: `plugin:${command.pluginId}:${command.id}`, label: `插件：${command.pluginName} · ${command.title}`, run: () => executePluginCommand(command, useAppStore.getState().editorView) })),
     { id: 'settings', label: t('设置', language), run: () => useAppStore.getState().setSettingsOpen(true) },
-  ], [language, onRevealActivityView]);
+  ], [language, onRevealActivityView, pluginCommands]);
   // 空输入只列前几条常用命令，输入 `>` 后按命令名过滤并放开条数；正常搜索时不占用结果区。
   const visibleCommands = useMemo(() => {
     if (trimmedQuery && !commandMode) return [];

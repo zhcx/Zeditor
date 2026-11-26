@@ -12,10 +12,15 @@ import { countLines, lineAtOffset, offsetOfLine } from '../../utils/wysiwyg/text
 import { rectOfRange, revealElement } from './domCaret.ts';
 import type { WysiwygSession } from './wysiwygSession';
 import type { EditorController, EditorDispatchSpec, EditorLine } from '../../types/editor';
+import type { GhostKeyEvent, ReviewDecoration } from '../../utils/reviewModel.ts';
 
 export interface WysiwygControllerDeps {
   session: WysiwygSession;
   tabId?: string | null;
+  /** 标签或文档快照已变化时拒绝写操作；读操作仍可用于安全交接。 */
+  isCurrentDocument?: () => boolean;
+  /** 提交块源码编辑器等局部草稿。 */
+  flushLocalEdits?: () => void;
   /** 编辑表面的滚动容器。 */
   getScrollDOM: () => HTMLElement | null;
   /** 当前选区（弹窗定位用）。 */
@@ -37,6 +42,43 @@ export function createWysiwygController(deps: WysiwygControllerDeps): EditorCont
   };
 
   const selectionRange = () => session.getSelectionOffsets();
+  const isCurrentDocument = () => deps.isCurrentDocument?.() ?? true;
+  let ghostText: { anchor: number; text: string; revision: string | number } | null = null;
+  let reviewDecorations: ReviewDecoration[] = [];
+  let decorationLayer: HTMLDivElement | null = null;
+  const reviewKeyListeners = new Set<(event: GhostKeyEvent) => boolean>();
+  const renderReviewLayer = () => {
+    const host = deps.getScrollDOM();
+    if (!host) return;
+    if (!decorationLayer || decorationLayer.parentElement !== host) {
+      decorationLayer = host.ownerDocument.createElement('div');
+      decorationLayer.className = 'wysiwyg-review-layer';
+      decorationLayer.setAttribute('aria-hidden', 'true');
+      host.appendChild(decorationLayer);
+    }
+    decorationLayer.replaceChildren();
+    const hostRect = host.getBoundingClientRect();
+    const add = (kind: ReviewDecoration['kind'] | 'ghost', offset: number, text: string) => {
+      const range = session.rangeOfOffset(Math.max(0, Math.min(offset, session.getSource().length)));
+      const rect = range ? rectOfRange(range) : null;
+      if (!rect || !decorationLayer) return;
+      const node = host.ownerDocument.createElement('span');
+      node.className = `wysiwyg-review-decoration ${kind}`;
+      node.textContent = kind === 'comment' ? '批注' : kind === 'comment-stale' ? '批注已失效' : text;
+      node.style.left = `${rect.left - hostRect.left + host.scrollLeft}px`;
+      node.style.top = `${rect.top - hostRect.top + host.scrollTop}px`;
+      if (kind === 'comment' || kind === 'comment-stale') node.title = text;
+      decorationLayer.appendChild(node);
+    };
+    if (ghostText) add('ghost', ghostText.anchor, ghostText.text);
+    for (const decoration of reviewDecorations) add(decoration.kind, decoration.from, decoration.text || '');
+  };
+  const flushEdits = () => {
+    session.flushWriteBack();
+    deps.flushLocalEdits?.();
+  };
+  // 状态栏/工具栏会频繁读选区；只结算正文 DOM，不提前处置独立的块源码草稿。
+  const flushInput = () => session.flushWriteBack();
 
   const revealOffset = (offset: number) => {
     const element = session.locateElementOfOffset(offset);
@@ -55,6 +97,7 @@ export function createWysiwygController(deps: WysiwygControllerDeps): EditorCont
 
   const controller: EditorController = {
     tabId: deps.tabId,
+    surface: 'wysiwyg',
     get scrollDOM() { return scrollHost(); },
     getScrollTop: () => deps.getScrollDOM()?.scrollTop ?? 0,
     getScrollHeight: () => deps.getScrollDOM()?.scrollHeight ?? 0,
@@ -78,7 +121,7 @@ export function createWysiwygController(deps: WysiwygControllerDeps): EditorCont
         const { from, to } = selectionRange();
         return { main: { from, to, empty: from === to } };
       },
-      sliceDoc: (from, to) => { session.flushWriteBack(); return session.getSource().slice(from, to); },
+      sliceDoc: (from, to) => { flushInput(); return session.getSource().slice(from, to); },
       doc: {
         get length() { return session.getSource().length; },
         get lines() { return countLines(session.getSource()); },
@@ -88,6 +131,8 @@ export function createWysiwygController(deps: WysiwygControllerDeps): EditorCont
       update: (spec) => spec,
     },
     dispatch: (spec: EditorDispatchSpec) => {
+      if (!isCurrentDocument()) return;
+      flushEdits();
       const selection = spec.selection?.main ?? spec.selection;
       const changes = spec.changes;
       if (changes) {
@@ -107,23 +152,30 @@ export function createWysiwygController(deps: WysiwygControllerDeps): EditorCont
       }
     },
     getValue: () => {
-      session.flushWriteBack();
+      flushInput();
       return session.getSource();
     },
-    flushPendingEdits: () => session.flushWriteBack(),
-    resetValue: (content) => { session.resetSource(content); },
+    flushPendingEdits: flushEdits,
+    resetValue: (content) => {
+      if (isCurrentDocument()) session.resetSource(content);
+    },
     getSelection: () => {
       // 先落盘再读：否则调用方拿到的偏移会落后于用户刚敲的内容。
+      flushInput();
       session.prepareExternalEdit();
       const { from, to } = selectionRange();
       return { from, to, empty: from === to };
     },
-    getText: (from, to) => { session.flushWriteBack(); return session.getSource().slice(from, to); },
+    getText: (from, to) => { flushInput(); return session.getSource().slice(from, to); },
     replaceRange: (from, to, text, selection) => {
+      if (!isCurrentDocument()) return;
+      flushEdits();
       session.replaceRange(from, to, text, selection?.from);
       if (selection) session.setSelectionOffsets(selection.from, selection.to);
     },
-    setSelection: (from, to) => { session.setSelectionOffsets(from, to); },
+    setSelection: (from, to) => {
+      if (isCurrentDocument()) session.setSelectionOffsets(from, to);
+    },
     lineAt: (offset) => lineAtOffset(session.getSource(), offset) as EditorLine,
     line: (lineNumber) => lineAtOffset(session.getSource(), offsetOfLine(session.getSource(), lineNumber)) as EditorLine,
     coordsAtPos: (offset) => {
@@ -134,9 +186,34 @@ export function createWysiwygController(deps: WysiwygControllerDeps): EditorCont
       return { left: rect.left, bottom: rect.bottom, x: rect.left, y: rect.bottom };
     },
     focus: () => deps.focus(),
-    undo: () => { session.handleUndo(); },
-    redo: () => { session.handleRedo(); },
+    undo: () => {
+      if (isCurrentDocument()) { flushEdits(); session.handleUndo(); }
+    },
+    redo: () => {
+      if (isCurrentDocument()) { flushEdits(); session.handleRedo(); }
+    },
     revealOffset,
+    getRevision: () => { flushInput(); return session.getContentRevision(); },
+    setGhostText: suggestion => { ghostText = suggestion; renderReviewLayer(); },
+    setReviewDecorations: decorations => { reviewDecorations = decorations; renderReviewLayer(); },
+    onReviewKeyDown: listener => {
+      reviewKeyListeners.add(listener);
+      const host = deps.getScrollDOM();
+      const handleKeyDown = (event: KeyboardEvent) => {
+        for (const reviewListener of reviewKeyListeners) {
+          if (reviewListener(event)) {
+            event.preventDefault();
+            event.stopPropagation();
+            return;
+          }
+        }
+      };
+      host?.addEventListener('keydown', handleKeyDown, true);
+      return () => {
+        reviewKeyListeners.delete(listener);
+        host?.removeEventListener('keydown', handleKeyDown, true);
+      };
+    },
   };
 
   return controller;

@@ -1,16 +1,41 @@
 import { sameDocument, type DocumentSnapshot } from '../utils/documentSafety';
+import { isActiveEditorDocument } from '../utils/editorDocumentIdentity';
 import { create } from 'zustand';
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
 import { useAppStore, providerNeedsKey, type AIProviderId } from './appStore';
 import { resolveAIRequestSettings } from '../utils/aiRequestSettings';
+import { withProjectContext } from '../utils/aiRequestContext';
+import { useProjectContextStore } from './projectContextStore';
 import { lintMarkdown } from '../utils/markdownLint';
 import { findMissingLocalLinks } from '../services/linkCheck';
 import { extractGenieText, type GenieDefinition, type GenieTarget } from '../utils/aiGenies';
+import {
+  buildReviewHunks,
+  canAcceptGhostText,
+  decideReviewHunk,
+  documentRevision,
+  remainingReviewHunks,
+  validateReviewProposal,
+  type ReviewDecision,
+  type ReviewHunk,
+  type ReviewProposalLike,
+} from '../utils/reviewModel.ts';
 
 /** AI 是否已就绪：已启用，且（有密钥 或 使用 Ollama 等免密钥提供商）。 */
 export function isAIConfigured(ai: { enabled: boolean; api_key: string; provider: string }): boolean {
   return ai.enabled && (Boolean(ai.api_key) || !providerNeedsKey(ai.provider));
+}
+
+function resolveProjectAIRequestSettings<T extends Parameters<typeof resolveAIRequestSettings>[0]>(
+  ai: T,
+  requestText = '',
+  selection?: Parameters<typeof resolveAIRequestSettings>[1],
+): (T & { project_context?: string }) | undefined {
+  const resolved = selection ? resolveAIRequestSettings(ai, selection) : resolveAIRequestSettings(ai) ?? ai;
+  if (!resolved) return resolved;
+  const context = useProjectContextStore.getState();
+  return withProjectContext(resolved as T & { project_context?: string }, context.files, requestText, context.budget, context.selectedSkills, context.root, useAppStore.getState().currentFile);
 }
 
 export interface ProofreadResult {
@@ -185,16 +210,63 @@ export type AIStatus = 'idle' | 'loading' | 'proofreading' | 'companion' | 'succ
 export type AIEditMode = 'ask' | 'suggest';
 export type AIChangeKind = 'polish' | 'translation' | 'fact' | 'structure' | 'continuation' | 'proofread' | 'transform';
 
-export interface AIEditProposal {
+export interface AIEditProposal extends ReviewProposalLike {
   source: DocumentSnapshot;
   id: string;
   kind: AIChangeKind;
   reason: string;
-  before: string;
-  after: string;
-  from: number;
-  to: number;
   createdAt: number;
+  hunks: ReviewHunk[];
+  reviewBase: { before: string; after: string; from: number };
+  reviewDecisions: Record<string, ReviewDecision>;
+  revision: string | number;
+}
+
+export interface GhostTextSuggestion {
+  tabId: string;
+  anchor: number;
+  text: string;
+  revision: string | number;
+}
+
+type ProposalInput = Omit<AIEditProposal, 'id' | 'createdAt' | 'source' | 'hunks' | 'reviewBase' | 'reviewDecisions' | 'revision'>;
+
+function createReviewProposal(proposal: ProposalInput, activeTabId: string | null, content: string, revision: string | number): AIEditProposal {
+  return {
+    ...proposal,
+    source: { activeTabId, content },
+    revision,
+    hunks: buildReviewHunks(proposal.before, proposal.after, proposal.from),
+    reviewBase: { before: proposal.before, after: proposal.after, from: proposal.from },
+    reviewDecisions: {},
+    id: `ai-edit-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+    createdAt: Date.now(),
+  };
+}
+
+function readCurrentReviewDocument() {
+  const editor = useAppStore.getState().editorView;
+  editor?.flushPendingEdits?.();
+  const state = useAppStore.getState();
+  const controllerCurrent = Boolean(editor && isActiveEditorDocument(editor.tabId, editor.getValue(), state));
+  const content = controllerCurrent ? editor!.getValue() : state.content;
+  const revision = controllerCurrent && editor?.getRevision ? editor.getRevision() : documentRevision(content);
+  return { state, editor, controllerCurrent, content, revision };
+}
+
+function writeReviewChange(
+  current: ReturnType<typeof readCurrentReviewDocument>,
+  from: number,
+  to: number,
+  text: string,
+  selection: { anchor: number; head: number },
+): void {
+  if (current.controllerCurrent && current.editor) {
+    current.editor.dispatch({ changes: { from, to, insert: text }, selection });
+    current.editor.focus();
+  } else {
+    current.state.setContent(current.content.slice(0, from) + text + current.content.slice(to));
+  }
 }
 
 export interface WorkspaceContextPayload {
@@ -308,6 +380,7 @@ interface AIState {
   statusMessage: string;
   editMode: AIEditMode;
   pendingEdit: AIEditProposal | null;
+  ghostText: GhostTextSuggestion | null;
   lastAppliedRound: AIAppliedRound | null;
 
   // 校对结果
@@ -344,8 +417,12 @@ interface AIState {
   // 操作
   setStatus: (status: AIStatus, message?: string) => void;
   setEditMode: (mode: AIEditMode) => void;
-  proposeEdit: (proposal: Omit<AIEditProposal, 'id' | 'createdAt' | 'source'>) => void;
+  proposeEdit: (proposal: ProposalInput) => void;
   acceptPendingEdit: () => void;
+  acceptPendingHunk: (hunkId: string) => void;
+  rejectPendingHunk: (hunkId: string) => void;
+  setGhostSuggestion: (text: string) => void;
+  acceptGhostText: () => boolean;
   rejectPendingEdit: () => void;
   undoLastAiRound: () => void;
   checkProofread: (content: string, baseOffset?: number) => Promise<void>;
@@ -392,6 +469,7 @@ export const useAIStore = create<AIState>((set, get) => ({
   statusMessage: '',
   editMode: 'suggest',
   pendingEdit: null,
+  ghostText: null,
   lastAppliedRound: null,
   proofreadResults: [],
   proofreadSnapshot: null,
@@ -428,8 +506,10 @@ export const useAIStore = create<AIState>((set, get) => ({
       return;
     }
 
+    const current = readCurrentReviewDocument();
     set({
-      pendingEdit: { ...proposal, source: {activeTabId:useAppStore.getState().activeTabId,content:useAppStore.getState().content}, id: `ai-edit-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`, createdAt: Date.now() },
+      pendingEdit: createReviewProposal(proposal, current.state.activeTabId, current.content, current.revision),
+      ghostText: null,
       status: 'success',
       statusMessage: 'AI 修改建议等待确认。',
     });
@@ -438,46 +518,142 @@ export const useAIStore = create<AIState>((set, get) => ({
   acceptPendingEdit: () => {
     const proposal = get().pendingEdit;
     if (!proposal) return;
-    const { editorView, content, activeTabId, setContent } = useAppStore.getState();
-    if (!activeTabId || !sameDocument(proposal.source, {activeTabId,content}) || proposal.from < 0 || proposal.to < proposal.from || proposal.to > content.length || content.slice(proposal.from, proposal.to) !== proposal.before) {
-      set({ pendingEdit: null, status: 'error', statusMessage: '文档已发生变化，无法安全应用此建议。请重新生成。' });
+    const current = readCurrentReviewDocument();
+    const validation = validateReviewProposal(proposal, current.content, current.revision, current.state.activeTabId);
+    if (!validation.ok) {
+      set({ pendingEdit: null, ghostText: null, status: 'error', statusMessage: validation.reason });
       return;
     }
-
-    set({ lastAppliedRound: { tabId: activeTabId, content, proposal, appliedContent: content.slice(0,proposal.from)+proposal.after+content.slice(proposal.to) }, pendingEdit: null });
-    if (editorView) {
-      const end = proposal.from + proposal.after.length;
-      // 伴写续写是“在光标处插入”：落点用折叠光标，不要选中整段新文本，
-      // 否则在源码对照模式下会突然高亮一整片，看起来像是误选了内容。
-      const selection = proposal.kind === 'continuation'
-        ? { anchor: end, head: end }
-        : { anchor: proposal.from, head: end };
-      editorView.dispatch(editorView.state.update({
-        changes: { from: proposal.from, to: proposal.to, insert: proposal.after },
-        selection,
-      }));
-      editorView.focus();
-    } else {
-      setContent(content.slice(0, proposal.from) + proposal.after + content.slice(proposal.to));
-    }
-    set({ status: 'success', statusMessage: '已应用此处 AI 修改；可一键撤销本轮。' });
+    const end = proposal.from + proposal.after.length;
+    const selection = proposal.kind === 'continuation'
+      ? { anchor: end, head: end }
+      : { anchor: proposal.from, head: end };
+    set({ lastAppliedRound: { tabId: current.state.activeTabId!, content: current.content, proposal, appliedContent: current.content.slice(0, proposal.from) + proposal.after + current.content.slice(proposal.to) } });
+    writeReviewChange(current, proposal.from, proposal.to, proposal.after, selection);
+    set({ pendingEdit: null, ghostText: null, status: 'success', statusMessage: '已应用此处 AI 修改；可一键撤销本轮。' });
   },
 
-  rejectPendingEdit: () => set({ pendingEdit: null, status: 'idle', statusMessage: '已拒绝 AI 修改建议。' }),
+  acceptPendingHunk: hunkId => {
+    const proposal = get().pendingEdit;
+    if (!proposal) return;
+    const current = readCurrentReviewDocument();
+    try {
+      const decision = decideReviewHunk(proposal, hunkId, 'accepted', current.content, current.revision);
+      const hunk = decision.hunk;
+      const roundProposal: AIEditProposal = {
+        ...proposal,
+        before: hunk.before,
+        after: hunk.after,
+        from: hunk.from,
+        to: hunk.to,
+        source: { activeTabId: current.state.activeTabId, content: current.content },
+      };
+      set({ lastAppliedRound: { tabId: current.state.activeTabId!, content: current.content, proposal: roundProposal, appliedContent: decision.appliedContent! } });
+      const selection = proposal.kind === 'continuation'
+        ? { anchor: hunk.from + hunk.after.length, head: hunk.from + hunk.after.length }
+        : { anchor: hunk.from, head: hunk.from + hunk.after.length };
+      writeReviewChange(current, hunk.from, hunk.to, hunk.after, selection);
+      const nextRevision = current.controllerCurrent && current.editor?.getRevision ? current.editor.getRevision() : documentRevision(decision.appliedContent!);
+      const hunks = remainingReviewHunks(decision.proposal);
+      const nextProposal: AIEditProposal = {
+        ...decision.proposal,
+        id: proposal.id,
+        kind: proposal.kind,
+        reason: proposal.reason,
+        createdAt: proposal.createdAt,
+        reviewBase: proposal.reviewBase,
+        reviewDecisions: decision.proposal.reviewDecisions ?? {},
+        revision: nextRevision,
+        hunks,
+      };
+      set({
+        pendingEdit: hunks.length ? nextProposal : null,
+        status: 'success',
+        statusMessage: hunks.length ? `已接受此修改块，还剩 ${hunks.length} 块。` : '已应用全部剩余 AI 修改；可一键撤销本轮。',
+      });
+    } catch (error) {
+      set({ pendingEdit: null, ghostText: null, status: 'error', statusMessage: String(error instanceof Error ? error.message : error) });
+    }
+  },
+
+  rejectPendingHunk: hunkId => {
+    const proposal = get().pendingEdit;
+    if (!proposal) return;
+    const current = readCurrentReviewDocument();
+    try {
+      const decision = decideReviewHunk(proposal, hunkId, 'rejected', current.content, current.revision);
+      const hunks = remainingReviewHunks(decision.proposal);
+      const nextProposal: AIEditProposal = {
+        ...decision.proposal,
+        id: proposal.id,
+        kind: proposal.kind,
+        reason: proposal.reason,
+        createdAt: proposal.createdAt,
+        reviewBase: proposal.reviewBase,
+        reviewDecisions: decision.proposal.reviewDecisions ?? {},
+        revision: current.revision,
+        hunks,
+      };
+      set({
+        pendingEdit: hunks.length ? nextProposal : null,
+        status: 'idle',
+        statusMessage: hunks.length ? `已拒绝此修改块，还剩 ${hunks.length} 块。` : '已拒绝全部 AI 修改建议。',
+      });
+    } catch (error) {
+      set({ pendingEdit: null, ghostText: null, status: 'error', statusMessage: String(error instanceof Error ? error.message : error) });
+    }
+  },
+
+  setGhostSuggestion: text => {
+    const state = get();
+    if (!state.companionVisible || state.companionAnchor === null || !state.companionTabId || !text.trim()) {
+      set({ ghostText: null });
+      return;
+    }
+    const current = readCurrentReviewDocument();
+    if (current.state.activeTabId !== state.companionTabId) {
+      set({ ghostText: null });
+      return;
+    }
+    set({ ghostText: { tabId: state.companionTabId, anchor: state.companionAnchor, text: text.trim(), revision: current.revision } });
+  },
+
+  acceptGhostText: () => {
+    const ghost = get().ghostText;
+    if (!ghost) return false;
+    const current = readCurrentReviewDocument();
+    const selection = current.controllerCurrent && current.editor ? current.editor.getSelection() : { from: ghost.anchor, to: ghost.anchor, empty: true };
+    const accepted = canAcceptGhostText({ key: 'Tab', shiftKey: false, ctrlKey: false, altKey: false, metaKey: false, isComposing: false }, ghost.anchor, selection, ghost.revision, current.revision)
+      && current.state.activeTabId === ghost.tabId && ghost.anchor >= 0 && ghost.anchor <= current.content.length;
+    if (!accepted) {
+      set({ ghostText: null });
+      return false;
+    }
+    const end = ghost.anchor + ghost.text.length;
+    const proposal = createReviewProposal({ kind: 'continuation', reason: 'AI 伴写续写', before: '', after: ghost.text, from: ghost.anchor, to: ghost.anchor }, ghost.tabId, current.content, current.revision);
+    set({ lastAppliedRound: { tabId: ghost.tabId, content: current.content, proposal, appliedContent: current.content.slice(0, ghost.anchor) + ghost.text + current.content.slice(ghost.anchor) } });
+    writeReviewChange(current, ghost.anchor, ghost.anchor, ghost.text, { anchor: end, head: end });
+    get().dismissCompanion();
+    set({ status: 'success', statusMessage: '已接受 AI 续写；可一键撤销本轮。' });
+    return true;
+  },
+
+  rejectPendingEdit: () => set({ pendingEdit: null, ghostText: null, status: 'idle', statusMessage: '已拒绝 AI 修改建议。' }),
 
   undoLastAiRound: () => {
     const round = get().lastAppliedRound;
-    const { activeTabId, setContent } = useAppStore.getState();
-    if (!round || round.tabId !== activeTabId) {
+    const current = readCurrentReviewDocument();
+    if (!round || round.tabId !== current.state.activeTabId) {
       set({ status: 'error', statusMessage: '当前文档没有可撤销的 AI 修改。' });
       return;
     }
-    if (useAppStore.getState().content !== round.appliedContent) {
+    if (current.content !== round.appliedContent) {
       set({ status: 'error', statusMessage: 'AI 修改后文档又有编辑，无法安全还原整篇快照。请使用编辑器撤销。' });
       return;
     }
-    setContent(round.content);
-    set({ lastAppliedRound: null, status: 'success', statusMessage: '已还原本轮 AI 修改前版本。' });
+    if (current.controllerCurrent && current.editor) current.editor.undo();
+    else current.state.setContent(round.content);
+    set({ lastAppliedRound: null, pendingEdit: null, ghostText: null, status: 'success', statusMessage: '已还原本轮 AI 修改。' });
   },
 
   checkProofread: async (content, baseOffset = 0) => {
@@ -567,7 +743,7 @@ export const useAIStore = create<AIState>((set, get) => ({
           content: trimmedContent,
           // 后端只认顶层字段：把已配置服务商的档案摊平后下发，
           // 避免「用某个服务商的密钥去打另一个服务商的默认端点」导致全部分块失败。
-          settings: resolveAIRequestSettings(settings.ai) ?? settings.ai,
+          settings: resolveProjectAIRequestSettings(settings.ai, content) ?? settings.ai,
         };
 
         const response = await invokeWithTimeout<{
@@ -714,6 +890,7 @@ export const useAIStore = create<AIState>((set, get) => ({
         companionSuggestions: cachedSuggestions,
         companionVisible: true,
       });
+      if (cachedSuggestions[0]) get().setGhostSuggestion(cachedSuggestions[0]);
       return;
     }
 
@@ -731,7 +908,7 @@ export const useAIStore = create<AIState>((set, get) => ({
         action: 'companion',
         content: trimmedContent,
         context: context || undefined,
-        settings: resolveAIRequestSettings(settings.ai) ?? settings.ai,
+        settings: resolveProjectAIRequestSettings(settings.ai, content) ?? settings.ai,
       };
       const response = await invokeWithTimeout<{
         success: boolean;
@@ -750,6 +927,7 @@ export const useAIStore = create<AIState>((set, get) => ({
           companionSuggestions: suggestions,
           companionVisible: true,
         });
+        if (suggestions[0]) get().setGhostSuggestion(suggestions[0]);
       } else {
         set({ status: 'error', statusMessage: response.message || '生成建议失败' });
       }
@@ -770,7 +948,7 @@ export const useAIStore = create<AIState>((set, get) => ({
       const requestData = {
         action: 'rewrite',
         content: text,
-        settings: settings.ai,
+        settings: resolveProjectAIRequestSettings(settings.ai, text) ?? settings.ai,
       };
       const response = await invokeWithTimeout<{
         success: boolean;
@@ -806,7 +984,7 @@ export const useAIStore = create<AIState>((set, get) => ({
         action: 'translate',
         content: text,
         context: targetLang,
-        settings: settings.ai,
+        settings: resolveProjectAIRequestSettings(settings.ai, text) ?? settings.ai,
       };
       const response = await invokeWithTimeout<{
         success: boolean;
@@ -842,7 +1020,7 @@ export const useAIStore = create<AIState>((set, get) => ({
       const requestData = {
         action: 'summarize',
         content,
-        settings: settings.ai,
+        settings: resolveProjectAIRequestSettings(settings.ai, content) ?? settings.ai,
       };
       const response = await invokeWithTimeout<{
         success: boolean;
@@ -877,7 +1055,7 @@ export const useAIStore = create<AIState>((set, get) => ({
       const requestData = {
         action: 'outline',
         content,
-        settings: settings.ai,
+        settings: resolveProjectAIRequestSettings(settings.ai, content) ?? settings.ai,
       };
       const response = await invokeWithTimeout<{
         success: boolean;
@@ -921,7 +1099,7 @@ export const useAIStore = create<AIState>((set, get) => ({
 
 已有内容（结尾处为最新）：
 ${beforeText.slice(-2000)}`,
-        settings: settings.ai,
+        settings: resolveProjectAIRequestSettings(settings.ai, beforeText) ?? settings.ai,
       };
       const response = await invokeWithTimeout<{
         success: boolean;
@@ -957,7 +1135,7 @@ ${beforeText.slice(-2000)}`,
       }>('ai_request', {
         action: 'chat',
         content: `${userMessage}${contextBlock}`,
-        settings: settings.ai,
+        settings: resolveProjectAIRequestSettings(settings.ai, `${userMessage}${source || ''}`) ?? settings.ai,
       }, 300000);
 
       set({ status: 'idle', statusMessage: '' });
@@ -985,7 +1163,7 @@ ${beforeText.slice(-2000)}`,
       }>('ai_request', {
         action: 'filename',
         content,
-        settings: settings.ai,
+        settings: resolveProjectAIRequestSettings(settings.ai, content) ?? settings.ai,
       }, 8000);
 
       if (!response.success) return null;
@@ -1036,7 +1214,7 @@ ${beforeText.slice(-2000)}`,
         const requestData: Record<string, unknown> = {
           action: genie.backendAction,
           content: target.text,
-          settings: requestSettings,
+          settings: resolveProjectAIRequestSettings(requestSettings, target.text) ?? requestSettings,
         };
         if (genie.backendAction === 'transform') {
           requestData.context = genie.instruction || undefined;
@@ -1120,9 +1298,7 @@ ${beforeText.slice(-2000)}`,
     if (!('__TAURI_INTERNALS__' in window)) {
       const appSettings = useAppStore.getState().settings;
       // 与桌面端走同一套凭据摊平逻辑，避免浏览器预览与桌面行为不一致。
-      const browserSettings = selection
-        ? resolveAIRequestSettings(appSettings.ai, selection) ?? appSettings.ai
-        : resolveAIRequestSettings(appSettings.ai) ?? appSettings.ai;
+      const browserSettings = resolveProjectAIRequestSettings(appSettings.ai, content, selection) ?? appSettings.ai;
       const attachmentContent = attachments?.map((attachment) => {
         if (attachment.type === 'image' && attachment.dataUrl) return `![${attachment.name}](${attachment.dataUrl})`;
         if (attachment.type === 'text' && attachment.content) return `> **附件: ${attachment.name}**\n> \`\`\`\n${attachment.content}\n> \`\`\``;
@@ -1195,9 +1371,7 @@ ${beforeText.slice(-2000)}`,
     const appSettings = useAppStore.getState().settings;
     // 统一走 resolveAIRequestSettings：把该服务商的档案摊平到顶层字段，
     // 保证 provider / api_key / api_endpoint / model 四者同源。
-    const resolvedAi = selection
-      ? resolveAIRequestSettings(appSettings.ai, selection)
-      : resolveAIRequestSettings(appSettings.ai) ?? appSettings.ai;
+    const resolvedAi = resolveProjectAIRequestSettings(appSettings.ai, content, selection);
     if (selection && !resolvedAi) {
       set({ status: 'error', statusMessage: '请先在设置中配置该 AI 服务商' });
       return;
@@ -1280,7 +1454,7 @@ ${beforeText.slice(-2000)}`,
       const requestArgs: Record<string, unknown> = {
         content: requestContent,
         context: JSON.stringify(history),
-        settings: settings.ai,
+        settings: resolveProjectAIRequestSettings(settings.ai, requestContent) ?? settings.ai,
         enableThinking: supportsThinking && effort !== 'off',
         requestId,
       };
@@ -1455,6 +1629,7 @@ ${beforeText.slice(-2000)}`,
       companionPosition: position || null,
       companionAnchor: anchor ?? appState.editorView?.getSelection().to ?? null,
       companionTabId: appState.activeTabId,
+      ghostText: null,
     });
   },
 
@@ -1467,6 +1642,7 @@ ${beforeText.slice(-2000)}`,
       companionAnchor: null,
       companionTabId: null,
       companionSuggestions: [],
+      ghostText: null,
       status: state.status === 'companion' || (state.status === 'error' && state.companionVisible) ? 'idle' : state.status,
       statusMessage: state.status === 'companion' || (state.status === 'error' && state.companionVisible) ? '' : state.statusMessage,
     }));
@@ -1507,6 +1683,7 @@ ${beforeText.slice(-2000)}`,
       companionAnchor: null,
       companionTabId: null,
       companionSuggestions: [],
+      ghostText: null,
     });
   },
 

@@ -2,7 +2,7 @@ import { AppIcon } from '../Icons/AppIcon';
 import type { IconName } from '../Icons/iconGeometry';
 import { useEffect, useRef, useState } from 'react';
 
-type ActivityView = 'explorer' | 'search';
+export type ActivityView = 'explorer' | 'search' | 'review' | 'history' | 'knowledge';
 
 interface ActivityBarProps {
   activeView: ActivityView;
@@ -27,9 +27,9 @@ interface ActivityBarProps {
   onToggleToolbar: () => void;
 }
 
-const ActivityIconNames = {"explorer":"folder","search":"search","ai":"assistant","immersive":"book","zen":"penLine","wysiwyg":"penLine","theme":"sun","settings":"settings","format":"format"} as const satisfies Record<string, IconName>;
+const ActivityIconNames = {"explorer":"folder","search":"search","review":"fileCheck","history":"history","knowledge":"database","ai":"assistant","immersive":"book","zen":"penLine","wysiwyg":"penLine","theme":"sun","settings":"settings","format":"format"} as const satisfies Record<string, IconName>;
 
-function ActivityIcon({ name }: { name: 'explorer' | 'search' | 'ai' | 'immersive' | 'zen' | 'wysiwyg' | 'theme' | 'settings' | 'format' }) {
+function ActivityIcon({ name }: { name: 'explorer' | 'search' | 'review' | 'history' | 'knowledge' | 'ai' | 'immersive' | 'zen' | 'wysiwyg' | 'theme' | 'settings' | 'format' }) {
   return <AppIcon name={ActivityIconNames[name]} />;
 }
 
@@ -63,6 +63,15 @@ export function ActivityBar({ activeView, sidebarVisible, chatbotVisible, settin
         </button>
         <button type="button" className={`activity-bar-button ${sidebarVisible && activeView === 'search' ? 'active' : ''}`} onClick={() => onSelectView('search')} title="搜索当前文档（正文查找/替换）" aria-label="搜索当前文档" aria-current={sidebarVisible && activeView === 'search' ? 'page' : undefined}>
           <ActivityIcon name="search" />
+        </button>
+        <button type="button" className={`activity-bar-button ${sidebarVisible && activeView === 'review' ? 'active' : ''}`} onClick={() => onSelectView('review')} title="审阅与批注" aria-label="审阅与批注" aria-current={sidebarVisible && activeView === 'review' ? 'page' : undefined}>
+          <ActivityIcon name="review" />
+        </button>
+        <button type="button" className={`activity-bar-button ${sidebarVisible && activeView === 'history' ? 'active' : ''}`} onClick={() => onSelectView('history')} title="本地版本历史" aria-label="本地版本历史" aria-current={sidebarVisible && activeView === 'history' ? 'page' : undefined}>
+          <ActivityIcon name="history" />
+        </button>
+        <button type="button" className={`activity-bar-button ${sidebarVisible && activeView === 'knowledge' ? 'active' : ''}`} onClick={() => onSelectView('knowledge')} title="知识管理" aria-label="知识管理" aria-current={sidebarVisible && activeView === 'knowledge' ? 'page' : undefined}>
+          <ActivityIcon name="knowledge" />
         </button>
         <button type="button" className={`activity-bar-button ${chatbotVisible ? 'active' : ''}`} onClick={onOpenChat} title="AI 对话" aria-label="AI 对话" aria-pressed={chatbotVisible}>
           <ActivityIcon name="ai" />

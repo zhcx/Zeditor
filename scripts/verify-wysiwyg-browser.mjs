@@ -193,7 +193,7 @@ try {
       assert.ok(text.includes(`Zeditor v${pkg.version}`));
       assert.ok(!text.includes('Zeditor v0.6.3'));
       assert.ok(!text.includes('暂无本版本更新说明'));
-      assert.ok(text.includes('中文排版'));
+      assert.ok(text.includes('所见即所得'));
       if (process.env.WYSIWYG_TEST_OUTPUT) {
         await page.screenshot({ path: join(process.env.WYSIWYG_TEST_OUTPUT, 'about-release-notes.png') });
       }
@@ -262,7 +262,16 @@ try {
     await page.keyboard.press('Shift+Enter');
     await page.keyboard.insertText('中');
     assert.equal(await getSource(), '前\n中后');
+    await page.waitForFunction(() => {
+      const blocks = [...document.querySelectorAll('.wysiwyg-block')];
+      return blocks.length === 2 && blocks[0].textContent.trim() === '前' && blocks[1].textContent.trim() === '中后';
+    });
     await page.keyboard.press('Home');
+    await page.waitForFunction(() => {
+      const selection = document.getSelection();
+      return selection?.anchorNode?.textContent === '中后' && selection.anchorOffset === 0
+        && document.querySelectorAll('.wysiwyg-block').length === 2;
+    });
     await page.keyboard.press('Backspace');
     assert.equal(await getSource(), '前中后');
   });
@@ -642,6 +651,8 @@ try {
     assert.equal(await page.locator('.wysiwyg-code-editor').inputValue(), 'const x = 1;\n\nnext');
     await page.keyboard.press('Escape');
     assert.equal(await getSource(), '```ts\nconst x = 1;\n\nnext\n```');
+    await page.waitForTimeout(50);
+    assert.equal(await page.locator('.wysiwyg-code-editor').count(), 0, '完成编辑后不应被光标恢复重新打开');
   });
   await test('CRLF code exposes only code body', async () => {
     await setDocument('```ts\r\nconst x = 1;\r\n```');
@@ -718,6 +729,54 @@ try {
     }, previous);
     assert.equal(text, '旧标签刚输入');
   });
+  await test('stale WYSIWYG controllers cannot write after a tab switch', async () => {
+    const previous = await setDocument('旧标签');
+    // Controller 含函数，不能跨 Playwright 边界序列化；留在页面内保存引用。
+    await page.evaluate(async () => {
+      const { useAppStore } = await import('/src/stores/appStore.ts');
+      window.__staleWysiwygController = useAppStore.getState().editorView;
+    });
+    const current = await setDocument('新标签');
+    await page.evaluate(() => window.__staleWysiwygController.replaceRange(0, 3, '错误写入'));
+    const contents = await page.evaluate(async ({ previous, current }) => {
+      const { useAppStore } = await import('/src/stores/appStore.ts');
+      const tabs = useAppStore.getState().tabs;
+      return { previous: tabs.find(tab => tab.id === previous)?.content, current: tabs.find(tab => tab.id === current)?.content };
+    }, { previous, current });
+    assert.deepEqual(contents, { previous: '旧标签', current: '新标签' });
+  });
+  await test('repeated mode transitions publish the matching connected controller', async () => {
+    await setDocument('切换内容');
+    const observations = await page.evaluate(async () => {
+      const { useAppStore } = await import('/src/stores/appStore.ts');
+      const observed = [];
+      for (const mode of ['source', 'wysiwyg', 'split', 'wysiwyg', 'source', 'wysiwyg']) {
+        useAppStore.getState().setMode(mode);
+        await new Promise(resolve => setTimeout(resolve, 100));
+        const state = useAppStore.getState();
+        observed.push({ mode, surface: state.editorView?.surface, connected: state.editorView?.scrollDOM?.isConnected, value: state.editorView?.getValue() });
+      }
+      return observed;
+    });
+    for (const observation of observations) {
+      assert.equal(observation.surface, observation.mode === 'wysiwyg' ? 'wysiwyg' : 'source');
+      assert.equal(observation.connected, true);
+      assert.equal(observation.value, '切换内容');
+    }
+  });
+  await test('CRLF table selection restores inside the requested cell', async () => {
+    const source = '| a | b | c |\r\n| --- | --- | --- |\r\n| 1 | 2 | d |';
+    await setDocument(source);
+    const selection = await page.evaluate(async source => {
+      const { useAppStore } = await import('/src/stores/appStore.ts');
+      const editor = useAppStore.getState().editorView;
+      editor.setSelection(source.indexOf('d') + 1);
+      await new Promise(resolve => setTimeout(resolve, 50));
+      const dom = document.getSelection();
+      return { text: dom.anchorNode?.textContent, offset: dom.anchorOffset };
+    }, source);
+    assert.deepEqual(selection, { text: 'd', offset: 1 });
+  });
   await test('table editing and Tab navigation retain table structure', async () => {
     await setDocument('| A | B |\n| --- | --- |\n| 1 | 2 |\n\n后记');
     await page.locator('.wysiwyg-block td').first().click();
@@ -762,6 +821,53 @@ try {
     const lineHeight = await page.locator('.wysiwyg-block p').first().evaluate(node => Number.parseFloat(getComputedStyle(node).lineHeight));
     assert.ok(Math.abs(afterEnter - (await contentHeight())) < 0.5, 'typing on the new line must not change its height');
     assert.ok(Math.abs(afterEnter - typed - lineHeight) < 0.5, `Enter should add exactly one visual line: ${typed} -> ${afterEnter}`);
+  });
+  await test('canceling a conflicting block-source overwrite keeps the draft recoverable', async () => {
+    const base = '| A | B |\n| --- | --- |\n| 1 | 2 |';
+    const draft = '| A | B |\n| --- | --- |\n| 9 | 8 |';
+    const external = '| A | B |\n| --- | --- |\n| 3 | 4 |';
+    await setDocument(base);
+    const shell = page.locator('.wysiwyg-block-shell').filter({ has: page.locator('.wysiwyg-block[data-block-kind="table"]') });
+    await page.locator('.wysiwyg-block[data-block-kind="table"]').hover();
+    await shell.locator('.wysiwyg-block-handle').click();
+    await shell.locator('.wysiwyg-block-menu button', { hasText: '编辑块源码' }).click();
+    await shell.locator('.wysiwyg-source-editor').fill(draft);
+    await page.evaluate(async source => {
+      const { useAppStore } = await import('/src/stores/appStore.ts');
+      useAppStore.setState(state => ({
+        content: source,
+        tabs: state.tabs.map(tab => tab.id === state.activeTabId ? { ...tab, content: source } : tab),
+      }));
+    }, external);
+    await page.waitForFunction(async source => {
+      const { useAppStore } = await import('/src/stores/appStore.ts');
+      return useAppStore.getState().editorView.getValue() === source;
+    }, external);
+    assert.equal(await shell.locator('.wysiwyg-source-editor').inputValue(), draft, 'external sync must not close or reset the source draft');
+    const dialogTypes = [];
+    const dismissConflict = async dialog => { dialogTypes.push(dialog.type()); await dialog.dismiss(); };
+    page.on('dialog', dismissConflict);
+    try {
+      await page.evaluate(async () => {
+        const { useAppStore } = await import('/src/stores/appStore.ts');
+        useAppStore.getState().editorView.flushPendingEdits();
+      });
+    } finally { page.off('dialog', dismissConflict); }
+    assert.equal(await getSource(), external, 'canceling the conflict must preserve external content');
+    assert.deepEqual(dialogTypes, ['confirm'], 'a conflicting draft must ask before overwriting');
+    await page.evaluate(async source => {
+      const { useAppStore } = await import('/src/stores/appStore.ts');
+      useAppStore.setState(state => ({
+        content: source,
+        tabs: state.tabs.map(tab => tab.id === state.activeTabId ? { ...tab, content: source } : tab),
+      }));
+    }, base);
+    await page.waitForTimeout(100);
+    await page.evaluate(async () => {
+      const { useAppStore } = await import('/src/stores/appStore.ts');
+      useAppStore.getState().editorView.flushPendingEdits();
+    });
+    assert.equal(await getSource(), draft, 'canceling the overwrite must not discard the local draft');
   });
   await test('block source editing stays inline and writes back', async () => {
     await setDocument('前段\n\n| A | B |\n| --- | --- |\n| 1 | 2 |\n\n后段');

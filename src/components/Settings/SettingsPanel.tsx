@@ -29,6 +29,8 @@ import { parseAIProviderProfiles } from '../../utils/aiProviderProfiles';
 import { WebDavSettings } from '../WebDav/WebDavSettings';
 import { S3Settings } from '../WebDav/S3Settings';
 import { WebDavHistoryDialog } from '../WebDav/WebDavHistoryDialog';
+import { ProjectContextPanel } from './ProjectContextPanel';
+import { SafePluginsPanel } from './SafePluginsPanel';
 import '../../styles/settings-ui.css';
 
 const isTauriRuntime = () => '__TAURI_INTERNALS__' in window;
@@ -219,7 +221,7 @@ const fetchModelsFromApi = async (apiKey: string, apiEndpoint: string, provider?
   });
 };
 
-const SettingsNavIconNames = {"appearance":"palette","editor":"penLine","image":"image","export":"download","web_search":"webSearch","explorer":"folder","workflow":"workflow","converter":"fileConvert","cloud":"cloudSync","ai":"assistant","mcp":"plug"} as const satisfies Record<string, IconName>;
+const SettingsNavIconNames = {"appearance":"palette","editor":"penLine","image":"image","export":"download","web_search":"webSearch","explorer":"folder","workflow":"workflow","converter":"fileConvert","cloud":"cloudSync","ai":"assistant","mcp":"plug","project_context":"notebook","extensions":"package"} as const satisfies Record<string, IconName>;
 
 function SettingsNavIcon({ type }: { type: SettingsTab }) {
   return <AppIcon name={SettingsNavIconNames[type]} />;
@@ -500,6 +502,8 @@ export function SettingsPanel() {
     { id: 'image', label: '图床', description: '图片上传与存储服务' },
     { id: 'export', label: '导出', description: '文档导出与版式设置' },
     { id: 'ai', label: 'AI 助手', description: '模型、提示与伴写设置' },
+    { id: 'project_context', label: '项目 AI 配置', description: '文风、资料库、技能与请求上下文' },
+    { id: 'extensions', label: '安全插件', description: '声明式插件、白名单动作与斜杠命令' },
     { id: 'explorer', label: '资源管理器', description: '文件浏览与工作区管理' },
     { id: 'workflow', label: '工作流', description: 'GitHub Actions 工作流查看器与结构化编辑' },
     { id: 'mcp', label: '集成', description: 'MCP 服务器与 AI 助手接入' },
@@ -1958,6 +1962,9 @@ export function SettingsPanel() {
               )}
             </div>
           )}
+
+          {activeTab === 'project_context' && <ProjectContextPanel />}
+          {activeTab === 'extensions' && <SafePluginsPanel />}
 
           {activeTab === 'cloud' && (
             <div className="settings-section">

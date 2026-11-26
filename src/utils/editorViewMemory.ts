@@ -43,6 +43,11 @@ export function createEditorViewMemory() {
       const pending = entries.get(id)?.pending;
       if (pending) delete pending[surface];
     },
+    /** 用户已主动滚动/操作时，放弃尚未执行的跨表面光标恢复。 */
+    discardPending(id: string, surface: EditorSurface) {
+      const pending = entries.get(id)?.pending;
+      if (pending) delete pending[surface];
+    },
     delete(id: string) { entries.delete(id); },
   };
 }

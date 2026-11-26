@@ -411,6 +411,9 @@ pub struct AISettings {
     /// 关闭后 AI 未配置直接报错，不再调用本机 CLI。
     #[serde(default = "default_true")]
     pub agent_fallback_enabled: bool,
+    /// 本次请求的项目写作上下文；不写入持久设置。
+    #[serde(default, skip_serializing)]
+    pub project_context: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -533,6 +536,7 @@ impl Default for Settings {
                 proofread_use_agent: false,
                 companion_use_agent: false,
                 agent_fallback_enabled: true,
+                project_context: String::new(),
             },
             agent: AgentSettings::default(),
             web_search: WebSearchSettings {
@@ -1340,40 +1344,50 @@ fn is_workspace_file(name: &str) -> bool {
     )
 }
 
+fn read_folder_nodes(path: String) -> Result<Vec<FileNode>, String> {
+    let mut nodes = Vec::new();
+    for entry in std::fs::read_dir(&path).map_err(|e| e.to_string())? {
+        let e = entry.map_err(|e| e.to_string())?;
+        let m = e.metadata().map_err(|e| e.to_string())?;
+        let name = e.file_name().to_string_lossy().to_string();
+        if name == ".git" || name == "node_modules" || name == "target" {
+            continue;
+        }
+        let is_dir = m.is_dir();
+        if !is_dir && !is_workspace_file(&name) {
+            continue;
+        }
+        nodes.push(FileNode {
+            name,
+            path: e.path().to_string_lossy().to_string(),
+            is_directory: is_dir,
+            children: if is_dir { Some(Vec::new()) } else { None },
+        });
+    }
+    nodes.sort_by(|a, b| match (a.is_directory, b.is_directory) {
+        (true, false) => std::cmp::Ordering::Less,
+        (false, true) => std::cmp::Ordering::Greater,
+        _ => a.name.to_lowercase().cmp(&b.name.to_lowercase()),
+    });
+    Ok(nodes)
+}
+
 #[tauri::command]
 pub async fn read_folder(path: String) -> Result<Vec<FileNode>, String> {
     // 打开的文件夹注册为授权根：后续删除/重命名/复制等破坏性命令
     // 仅允许作用于授权根内部（见 ensure_fs_authorized）。
     register_authorized_root(&path);
-    tokio::task::spawn_blocking(move || {
-        let mut nodes = Vec::new();
-        for entry in std::fs::read_dir(&path).map_err(|e| e.to_string())? {
-            let e = entry.map_err(|e| e.to_string())?;
-            let m = e.metadata().map_err(|e| e.to_string())?;
-            let name = e.file_name().to_string_lossy().to_string();
-            if name == ".git" || name == "node_modules" || name == "target" {
-                continue;
-            }
-            let is_dir = m.is_dir();
-            if !is_dir && !is_workspace_file(&name) {
-                continue;
-            }
-            nodes.push(FileNode {
-                name,
-                path: e.path().to_string_lossy().to_string(),
-                is_directory: is_dir,
-                children: if is_dir { Some(Vec::new()) } else { None },
-            });
-        }
-        nodes.sort_by(|a, b| match (a.is_directory, b.is_directory) {
-            (true, false) => std::cmp::Ordering::Less,
-            (false, true) => std::cmp::Ordering::Greater,
-            _ => a.name.to_lowercase().cmp(&b.name.to_lowercase()),
-        });
-        Ok(nodes)
-    })
-    .await
-    .map_err(|error| format!("读取文件夹任务异常：{error}"))?
+    tokio::task::spawn_blocking(move || read_folder_nodes(path))
+        .await
+        .map_err(|error| format!("读取文件夹任务异常：{error}"))?
+}
+
+/// 只读列目录不会注册破坏性文件操作权限，供知识索引和迁移分析使用。
+#[tauri::command]
+pub async fn read_folder_readonly(path: String) -> Result<Vec<FileNode>, String> {
+    tokio::task::spawn_blocking(move || read_folder_nodes(path))
+        .await
+        .map_err(|error| format!("读取文件夹任务异常：{error}"))?
 }
 
 /// 已授权的文件操作根目录（进程内有效）。
@@ -1402,16 +1416,24 @@ fn register_authorized_root(path: &str) {
 
 /// 目标路径不存在时（如重命名/新建的目标），规范化其父目录再拼接文件名。
 fn canonicalize_or_parent(path: &str) -> Result<PathBuf, String> {
-    let candidate = Path::new(path);
-    if let Ok(canonical) = std::fs::canonicalize(candidate) {
-        return Ok(canonical);
+    let mut existing = PathBuf::from(path);
+    let mut remaining = Vec::new();
+    while !existing.exists() {
+        let name = existing
+            .file_name()
+            .ok_or_else(|| "无效路径".to_string())?
+            .to_os_string();
+        remaining.push(name);
+        if !existing.pop() {
+            return Err("无法访问路径".to_string());
+        }
     }
-    let parent = candidate.parent().ok_or_else(|| "无效路径".to_string())?;
-    let file_name = candidate
-        .file_name()
-        .ok_or_else(|| "无效路径".to_string())?;
-    let parent = std::fs::canonicalize(parent).map_err(|e| format!("无法访问路径：{e}"))?;
-    Ok(parent.join(file_name))
+    let mut canonical =
+        std::fs::canonicalize(&existing).map_err(|error| format!("无法访问路径：{error}"))?;
+    for name in remaining.into_iter().rev() {
+        canonical.push(name);
+    }
+    Ok(canonical)
 }
 
 fn ensure_fs_authorized(path: &str, operation: &str) -> Result<(), String> {
@@ -1445,6 +1467,92 @@ pub async fn create_file(path: String, content: Option<String>) -> Result<(), St
             .map_err(|e| format!("创建文件失败：{e}"))?;
     }
     Ok(())
+}
+
+/// 创建新文件但不覆盖已有内容；返回 false 表示目标已存在。
+#[tauri::command]
+pub async fn create_file_exclusive(path: String, content: String) -> Result<bool, String> {
+    ensure_fs_authorized(&path, "新建文件")?;
+    let target = Path::new(&path);
+    let parent = target
+        .parent()
+        .ok_or_else(|| "无法获取父目录路径".to_string())?;
+    tokio::fs::create_dir_all(parent)
+        .await
+        .map_err(|error| format!("创建父目录失败：{error}"))?;
+    let mut file = match tokio::fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(target)
+        .await
+    {
+        Ok(file) => file,
+        Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => return Ok(false),
+        Err(error) => return Err(format!("创建文件失败：{error}")),
+    };
+    tokio::io::AsyncWriteExt::write_all(&mut file, content.as_bytes())
+        .await
+        .map_err(|error| format!("写入文件失败：{error}"))?;
+    tokio::io::AsyncWriteExt::flush(&mut file)
+        .await
+        .map_err(|error| format!("刷新文件失败：{error}"))?;
+    Ok(true)
+}
+
+#[cfg(test)]
+mod readonly_folder_tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn readonly_folder_scan_does_not_grant_write_permission() {
+        let root = std::env::temp_dir().join(format!("zeditor-readonly-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&root).unwrap();
+        std::fs::write(root.join("note.md"), "note").unwrap();
+        assert_eq!(
+            read_folder_readonly(root.to_str().unwrap().to_string())
+                .await
+                .unwrap()
+                .len(),
+            1
+        );
+        assert!(create_file_exclusive(
+            root.join("new.md").to_str().unwrap().to_string(),
+            "x".to_string()
+        )
+        .await
+        .is_err());
+        let _ = std::fs::remove_dir_all(root);
+    }
+}
+
+#[cfg(test)]
+mod exclusive_create_tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn exclusive_create_never_overwrites_existing_file() {
+        let root = std::env::temp_dir().join(format!("zeditor-exclusive-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&root).unwrap();
+        register_authorized_root(root.to_str().unwrap());
+        let path = root.join("note.md");
+        assert!(
+            create_file_exclusive(path.to_str().unwrap().to_string(), "第一版".to_string())
+                .await
+                .unwrap()
+        );
+        assert!(
+            !create_file_exclusive(path.to_str().unwrap().to_string(), "覆盖".to_string())
+                .await
+                .unwrap()
+        );
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), "第一版");
+        let nested = root.join(".zeditor/library");
+        create_directory(nested.to_str().unwrap().to_string())
+            .await
+            .unwrap();
+        assert!(nested.is_dir());
+        let _ = std::fs::remove_dir_all(root);
+    }
 }
 
 #[tauri::command]

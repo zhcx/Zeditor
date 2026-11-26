@@ -20,9 +20,11 @@ import { findFootnoteReferenceAt, parseFootnoteDefinitions, type FootnoteDefinit
 import { contentFontStack, normalizeTypography } from '../../utils/appearanceSettings';
 import { ensureMonacoTheme } from '../../themes/monaco';
 import { DocumentSessions, sameDocument } from '../../utils/documentSafety';
+import { isActiveEditorDocument } from '../../utils/editorDocumentIdentity';
+import { resolveExternalEditorSource } from '../../utils/editorTransitionSafety';
 import { documentHistory } from '../../utils/documentHistory';
 import { editorViewMemory } from '../../utils/editorViewMemory';
-import { filterSlashCommands, findSlashCommandTrigger, type SlashCommand } from '../../utils/slashCommands';
+import { createPluginSlashCommands, filterSlashCommands, findSlashCommandTrigger, type SlashCommand } from '../../utils/slashCommands';
 import { extractGenieTarget, slashAiGenie } from '../../utils/aiGenies';
 import { MARKMAP_TEMPLATE, MARKMAP_TEMPLATE_SELECTION } from '../../utils/markmapSource';
 import { SlashCommandMenu, type SlashMenuAnchor } from './SlashCommandMenu';
@@ -59,10 +61,15 @@ import {
 } from '../../utils/markdownTable';
 import { insertImageFromBytes } from '../../services/imageAssets';
 import { openWikiLink } from '../../services/wikiLinks';
+import { canAcceptGhostText, reviewProposalDecorations, validateReviewProposal, type GhostKeyEvent, type ReviewDecoration } from '../../utils/reviewModel.ts';
+import { useReviewStore } from '../../stores/reviewStore.ts';
+import { usePluginStore } from '../../stores/pluginStore.ts';
+import { installWikiCompletionProvider } from '../../utils/wikiCompletionProvider.ts';
 
 (self as typeof self & { MonacoEnvironment: { getWorker: () => Worker } }).MonacoEnvironment = {
   getWorker: () => new EditorWorker(),
 };
+installWikiCompletionProvider(monaco);
 
 /**
  * Markdown 折叠范围统一由本模块提供：
@@ -221,6 +228,7 @@ interface HistoryEditState { suppress: boolean; boundary: boolean }
 
 function createController(editor: monaco.editor.IStandaloneCodeEditor, model: monaco.editor.ITextModel, root: HTMLElement, tabId: string, historyState: HistoryEditState): EditorController {
   const isCurrentModel = () => editor.getModel() === model;
+  const isCurrentDocument = () => isCurrentModel() && isActiveEditorDocument(tabId, model.getValue(), useAppStore.getState());
   const getSelection = () => {
     const selection = editor.getSelection();
     if (!selection) return { from: 0, to: 0, empty: true };
@@ -229,15 +237,51 @@ function createController(editor: monaco.editor.IStandaloneCodeEditor, model: mo
     return { from, to, empty: from === to };
   };
 
-  const setSelection = (from: number, to = from) => {
+  let ghostText: { anchor: number; text: string; revision: string | number } | null = null;
+  let reviewDecorations: ReviewDecoration[] = [];
+  let ghostDecorationIds: string[] = [];
+  let reviewDecorationIds: string[] = [];
+  const reviewKeyListeners = new Set<(event: GhostKeyEvent) => boolean>();
+  const renderGhostText = () => {
     if (!isCurrentModel()) return;
+    const decorations: monaco.editor.IModelDeltaDecoration[] = ghostText && ghostText.anchor <= model.getValueLength()
+      ? [{
+        range: monaco.Range.fromPositions(offsetToPosition(model, ghostText.anchor), offsetToPosition(model, ghostText.anchor)),
+        options: { after: { content: ghostText.text, inlineClassName: 'monaco-ghost-text' } },
+      }]
+      : [];
+    ghostDecorationIds = editor.deltaDecorations(ghostDecorationIds, decorations);
+  };
+  const renderReviewDecorations = () => {
+    if (!isCurrentModel()) return;
+    const decorations: monaco.editor.IModelDeltaDecoration[] = reviewDecorations
+      .filter(item => item.from >= 0 && item.to >= item.from && item.to <= model.getValueLength())
+      .map(item => {
+        const className = item.kind === 'deletion' ? 'monaco-review-deletion'
+          : item.kind === 'addition' ? 'monaco-review-addition'
+            : item.kind === 'comment-stale' ? 'monaco-review-comment stale' : 'monaco-review-comment';
+        return {
+          range: monaco.Range.fromPositions(offsetToPosition(model, item.from), offsetToPosition(model, item.to)),
+          options: {
+            inlineClassName: className,
+            linesDecorationClassName: item.kind === 'deletion' ? 'monaco-review-deletion-line' : undefined,
+            after: item.kind === 'addition' && item.text ? { content: item.text, inlineClassName: 'monaco-review-added-text' } : undefined,
+            hoverMessage: { value: item.text || '人工批注' },
+          },
+        };
+      });
+    reviewDecorationIds = editor.deltaDecorations(reviewDecorationIds, decorations);
+  };
+
+  const setSelection = (from: number, to = from) => {
+    if (!isCurrentDocument()) return;
     const start = offsetToPosition(model, from);
     const end = offsetToPosition(model, to);
     editor.setSelection(new monaco.Selection(start.lineNumber, start.column, end.lineNumber, end.column));
   };
 
   const applyDispatch = (spec: EditorDispatchSpec) => {
-    if (!isCurrentModel()) return;
+    if (!isCurrentDocument()) return;
     const change = spec?.changes;
     if (change && typeof change.from === 'number') {
       const text = change.insert ?? '';
@@ -254,6 +298,7 @@ function createController(editor: monaco.editor.IStandaloneCodeEditor, model: mo
 
   const controller = {
     tabId,
+    surface: 'source' as const,
     scrollDOM: root.querySelector<HTMLElement>('.monaco-scrollable-element.editor-scrollable') || root,
     getScrollTop: () => editor.getScrollTop(),
     getScrollHeight: () => editor.getScrollHeight(),
@@ -270,7 +315,7 @@ function createController(editor: monaco.editor.IStandaloneCodeEditor, model: mo
     },
     getValue: () => model.getValue(),
     resetValue: (content) => {
-      if (!isCurrentModel()) return;
+      if (!isCurrentDocument()) return;
       documentHistory.get(tabId).clear();
       historyState.suppress = true;
       try { model.setValue(content); } finally { historyState.suppress = false; }
@@ -278,7 +323,7 @@ function createController(editor: monaco.editor.IStandaloneCodeEditor, model: mo
     getSelection,
     getText: (from, to) => model.getValueInRange(monaco.Range.fromPositions(offsetToPosition(model, from), offsetToPosition(model, to))),
     replaceRange: (from, to, text, selection) => {
-      if (!isCurrentModel()) return;
+      if (!isCurrentDocument()) return;
       // 工具栏、任务切换和富文本粘贴各自形成完整的撤销步骤。
       editor.pushUndoStop();
       historyState.boundary = true;
@@ -304,6 +349,13 @@ function createController(editor: monaco.editor.IStandaloneCodeEditor, model: mo
     undo: () => applyHistory('undo'),
     redo: () => applyHistory('redo'),
     revealOffset: (offset) => { if (isCurrentModel()) editor.revealPositionInCenter(offsetToPosition(model, offset)); },
+    getRevision: () => model.getVersionId(),
+    setGhostText: suggestion => { ghostText = suggestion; renderGhostText(); },
+    setReviewDecorations: decorations => { reviewDecorations = decorations; renderReviewDecorations(); },
+    onReviewKeyDown: listener => {
+      reviewKeyListeners.add(listener);
+      return () => { reviewKeyListeners.delete(listener); };
+    },
     dispatch: applyDispatch,
   } as EditorController;
 
@@ -391,7 +443,15 @@ export function Editor({ className, style, onActiveLineChange, onActiveLineRevea
   const { content, activeTabId, tabs, updateTabContent, settings, setEditorView } = useAppStore(useShallow(state => ({ content: state.content, activeTabId: state.activeTabId, tabs: state.tabs, updateTabContent: state.updateTabContent, settings: state.settings, setEditorView: state.setEditorView })));
   const proofreadResults = useAIStore(state => state.proofreadResults);
   const proofreadSnapshot = useAIStore(state => state.proofreadSnapshot);
-  const slashCommands = useMemo(() => filterSlashCommands(slashMenu?.query || ''), [slashMenu?.query]);
+  const pendingEdit = useAIStore(state => state.pendingEdit);
+  const ghostText = useAIStore(state => state.ghostText);
+  const reviewComments = useReviewStore(state => state.comments);
+  const reviewDocumentKey = useReviewStore(state => state.documentKey);
+  const plugins = usePluginStore(state => state.plugins);
+  const pluginSlashCommands = useMemo(() => createPluginSlashCommands(plugins.flatMap(record => record.enabled
+    ? record.manifest.contributions.slash.map(item => ({ ...item, pluginId: record.manifest.id }))
+    : [])), [plugins]);
+  const slashCommands = useMemo(() => filterSlashCommands(slashMenu?.query || '', pluginSlashCommands), [slashMenu?.query, pluginSlashCommands]);
   const language = normalizeLanguage(settings.appearance.language);
 
   /** 在目标下方打开内联弹窗；坐标取视口位置，滚动 / 内容变化时刷新。 */
@@ -1104,9 +1164,20 @@ export function Editor({ className, style, onActiveLineChange, onActiveLineRevea
       const menu = slashMenuRef.current;
       const browserEvent = event.browserEvent;
       const key = browserEvent.key;
-
+      const inlineAI = useAIStore.getState();
+      if (inlineAI.ghostText?.tabId === currentTabId) {
+        const ghost = inlineAI.ghostText;
+        const selection = controller.getSelection();
+        const revision = controller.getRevision?.();
+        if (canAcceptGhostText(browserEvent, ghost.anchor, selection, ghost.revision, revision)) {
+          event.preventDefault();
+          event.stopPropagation();
+          inlineAI.acceptGhostText();
+          return;
+        }
+      }
       if (menu) {
-        const commands = filterSlashCommands(menu.query);
+        const commands = filterSlashCommands(menu.query, pluginSlashCommands);
         if (key === 'Escape') {
           event.preventDefault();
           event.stopPropagation();
@@ -1465,11 +1536,13 @@ export function Editor({ className, style, onActiveLineChange, onActiveLineRevea
       editor.dispose();
       monacoRef.current = null;
       modelRef.current = null;
+      const ownsController = controllerRef.current === controller;
       controllerRef.current = null;
       slashMenuRef.current = null;
-      setEditorView(null);
+      // 清理可能晚于另一个表面的发布；只移除仍属于自己的 controller。
+      if (ownsController && useAppStore.getState().editorView === controller) setEditorView(null);
     };
-  }, [onActiveLineChange, onActiveLineReveal, updateTabContent, setEditorView, closeInlinePopup, openInlinePopupAt]);
+  }, [onActiveLineChange, onActiveLineReveal, updateTabContent, setEditorView, closeInlinePopup, openInlinePopupAt, pluginSlashCommands]);
 
   useEffect(() => { activateTabRef.current(activeTabId); }, [activeTabId]);
 
@@ -1480,11 +1553,13 @@ export function Editor({ className, style, onActiveLineChange, onActiveLineRevea
   }, [tabs]);
 
   useEffect(() => {
+    const state = useAppStore.getState();
+    const source = resolveExternalEditorSource(state, activeTabId);
     const model = modelRef.current;
     const editor = monacoRef.current;
-    if (!model || !editor || model.getValue() === content) return;
-    editor.executeEdits('external-update', [{ range: model.getFullModelRange(), text: content, forceMoveMarkers: true }]);
-  }, [content]);
+    if (source === null || !model || !editor || model.getValue() === source) return;
+    editor.executeEdits('external-update', [{ range: model.getFullModelRange(), text: source, forceMoveMarkers: true }]);
+  }, [activeTabId, content]);
 
   // 桌面设置会异步加载；保存输入引擎后同步更新现有实例，避免界面选择与实际引擎不一致。
   useEffect(() => {
@@ -1555,6 +1630,32 @@ export function Editor({ className, style, onActiveLineChange, onActiveLineRevea
     window.addEventListener('zeditor-content-font-size-preview', handleFontSizePreview);
     return () => window.removeEventListener('zeditor-content-font-size-preview', handleFontSizePreview);
   }, [settings.appearance.font_family, settings.appearance.line_height]);
+
+  useEffect(() => {
+    const editor = monacoRef.current;
+    const model = modelRef.current;
+    const controller = controllerRef.current;
+    if (!editor || !model || !controller?.setReviewDecorations || !controller.setGhostText) return;
+    const revision = controller.getRevision?.();
+    const validPending = pendingEdit && validateReviewProposal(pendingEdit, model.getValue(), revision, activeTabId).ok;
+    const decorations: ReviewDecoration[] = validPending ? reviewProposalDecorations(pendingEdit) : [];
+    for (const comment of reviewComments[reviewDocumentKey] ?? []) {
+      if (comment.resolved || comment.to <= comment.from) continue;
+      const from = Math.max(0, Math.min(comment.from, model.getValueLength()));
+      const to = Math.max(from, Math.min(comment.to, model.getValueLength()));
+      decorations.push({ id: `comment-${comment.id}`, from, to, kind: comment.stale ? 'comment-stale' : 'comment', text: comment.quote });
+    }
+    controller.setReviewDecorations(decorations);
+    const syncGhost = () => {
+      const selection = controller.getSelection();
+      const validGhost = ghostText && ghostText.tabId === activeTabId && ghostText.revision === controller.getRevision?.()
+        && selection.empty && selection.from === ghostText.anchor && selection.to === ghostText.anchor;
+      controller.setGhostText?.(validGhost ? { anchor: ghostText.anchor, text: ghostText.text, revision: ghostText.revision } : null);
+    };
+    syncGhost();
+    const selectionDisposable = editor.onDidChangeCursorSelection(syncGhost);
+    return () => selectionDisposable.dispose();
+  }, [pendingEdit, ghostText, reviewComments, reviewDocumentKey, activeTabId, content]);
 
   useEffect(() => {
     const editor = monacoRef.current;

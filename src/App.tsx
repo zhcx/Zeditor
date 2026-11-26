@@ -17,7 +17,7 @@ import { Preview } from './components/Preview/Preview';
 import { StatusBar } from './components/StatusBar/StatusBar';
 import { Sidebar } from './components/Sidebar/Sidebar';
 import { TitleBar } from './components/TitleBar/TitleBar';
-import { ActivityBar } from './components/ActivityBar/ActivityBar';
+import { ActivityBar, type ActivityView } from './components/ActivityBar/ActivityBar';
 import { UiLanguageBridge } from './i18n/UiLanguageBridge';
 
 // 条件渲染的重型面板按需加载：设置面板、AI 对话、导出与确认对话框等都
@@ -71,6 +71,9 @@ import { changedRecoveryTabs, createRecoverySnapshot } from './utils/recovery';
 import { LineWidthWheel } from './components/Editor/LineWidthWheel';
 import { applyThemeToDocument, toggleThemeMode } from './themes/apply';
 import { isMacOS, isNativeMenuActive } from './utils/platform';
+import { SplitEditorWorkspace } from './components/Editor/SplitEditorWorkspace';
+import { WorkspaceSync } from './components/WorkspaceSync';
+import { useWorkspaceLayoutStore } from './stores/workspaceLayoutStore';
 
 interface DragDropPayload {
   paths: string[];
@@ -172,7 +175,7 @@ function App() {
   const closePresentation = useCallback(() => setPresentationVisible(false), []);
   const [aiPaletteVisible, setAiPaletteVisible] = useState(false);
   const closeAiPalette = useCallback(() => setAiPaletteVisible(false), []);
-  const [activityView, setActivityView] = useState<'explorer' | 'search'>('explorer');
+  const [activityView, setActivityView] = useState<ActivityView>('explorer');
   const [documentSwitcherVisible, setDocumentSwitcherVisible] = useState(false);
   // 查询值由 App 持有：输入框本身在标题栏（面板内不再放第二个输入框）。
   const [switcherQuery, setSwitcherQuery] = useState('');
@@ -939,7 +942,7 @@ function App() {
   }, [openFile]);
 
   // 活动栏切换侧栏视图：点当前视图收起侧栏，点另一个视图切换过去。
-  const selectActivityView = useCallback((view: 'explorer' | 'search') => {
+  const selectActivityView = useCallback((view: ActivityView) => {
     if (sidebarVisible && activityView === view) {
       setSidebarVisible(false);
       return;
@@ -950,11 +953,70 @@ function App() {
 
   // 命令面板里「搜索当前文档」等入口需要强制切过去，不能复用上面的 toggle 语义；
   // 沉浸/写作模式下侧栏不渲染，因此还要回到分屏模式。
-  const revealActivityView = useCallback((view: 'explorer' | 'search') => {
+  const revealActivityView = useCallback((view: ActivityView) => {
     setActivityView(view);
     setSidebarVisible(true);
     if (mode !== 'split' && mode !== 'wysiwyg' && mode !== 'source') useAppStore.getState().setMode('split');
   }, [mode, setSidebarVisible]);
+
+  useEffect(() => {
+    const openReviewNote = () => {
+      setActivityView('review');
+      setSidebarVisible(true);
+      if (mode !== 'split' && mode !== 'wysiwyg' && mode !== 'source') useAppStore.getState().setMode('split');
+      window.setTimeout(() => window.dispatchEvent(new CustomEvent('zeditor-review-open-composer')), 0);
+    };
+    window.addEventListener('zeditor-add-review-note', openReviewNote);
+    return () => window.removeEventListener('zeditor-add-review-note', openReviewNote);
+  }, [mode, setSidebarVisible]);
+
+  useEffect(() => {
+    const openKnowledge = () => revealActivityView('knowledge');
+    const openHistory = () => revealActivityView('history');
+    const toggleSplit = () => {
+      const app = useAppStore.getState();
+      const layout = useWorkspaceLayoutStore.getState();
+      if (layout.enabled) { layout.disableSplit(); return; }
+      const secondary = app.tabs.find(tab => tab.id !== app.activeTabId);
+      if (!secondary) {
+        useAIStore.getState().setStatus('error', '请先打开另一篇文档，再启用双文档分栏。');
+        return;
+      }
+      if (app.mode !== 'source' && app.mode !== 'wysiwyg') app.setMode('source');
+      layout.enableSplit(layout.secondaryTabId && layout.secondaryTabId !== app.activeTabId ? layout.secondaryTabId : secondary.id);
+      useAIStore.getState().setStatus('idle', '');
+    };
+    const insertPluginText = (event: Event) => {
+      const text = (event as CustomEvent<{ text?: string }>).detail?.text;
+      if (typeof text !== 'string' || !text) return;
+      const app = useAppStore.getState();
+      const editor = app.editorView;
+      if (!editor) { useAIStore.getState().setStatus('error', '当前没有可写入的编辑器。'); return; }
+      editor.flushPendingEdits?.();
+      const selection = editor.getSelection();
+      editor.replaceRange(selection.from, selection.to, text);
+      editor.focus();
+    };
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (isNativeMenuActive() || event.isComposing) return;
+      if ((event.ctrlKey || event.metaKey) && event.shiftKey && !event.altKey && event.key.toLowerCase() === 'k') {
+        event.preventDefault();
+        openKnowledge();
+      }
+    };
+    window.addEventListener('zeditor-open-knowledge', openKnowledge);
+    window.addEventListener('zeditor-open-history', openHistory);
+    window.addEventListener('zeditor-toggle-split', toggleSplit);
+    window.addEventListener('zeditor-plugin-insert', insertPluginText);
+    window.addEventListener('keydown', onKeyDown);
+    return () => {
+      window.removeEventListener('zeditor-open-knowledge', openKnowledge);
+      window.removeEventListener('zeditor-open-history', openHistory);
+      window.removeEventListener('zeditor-toggle-split', toggleSplit);
+      window.removeEventListener('zeditor-plugin-insert', insertPluginText);
+      window.removeEventListener('keydown', onKeyDown);
+    };
+  }, [mode, revealActivityView, setSidebarVisible]);
 
   useEffect(() => {
     const find = () => {
@@ -1251,6 +1313,7 @@ function App() {
   return (
     <div className={`app ${immersivePolicy.active ? 'immersive-mode-active' : ''} ${mode === 'zen' ? 'zen-mode' : ''}`}>
       <UiLanguageBridge />
+      <WorkspaceSync />
       <TitleBar
         onRequestClose={requestAppClose}
         searchOpen={documentSwitcherVisible}
@@ -1299,6 +1362,7 @@ function App() {
           )}
           <div className="workspace-shell">
         <main className={`main-content ${mode}`}>
+          <SplitEditorWorkspace>
           {mode === 'split' || mode === 'source' ? (
             <>
               <section className="document-pane editor-workspace-pane" style={{ flex: mode === 'source' ? 1 : splitRatio }}>
@@ -1434,6 +1498,7 @@ function App() {
               </div>
             </section>
           )}
+          </SplitEditorWorkspace>
                   {hasProofread && (
                     <>
                       <PanelDivider className="proofread-divider resizable" label="调整校对栏宽度" side="after"

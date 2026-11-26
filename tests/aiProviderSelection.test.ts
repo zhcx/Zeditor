@@ -113,11 +113,12 @@ test('AI 对话面板只列出已配置的服务商，且仅在多个时提供�
 test('校对与伴写请求在发送前摊平服务商凭据', () => {
   const store = read('src/stores/aiStore.ts');
   // 校对：原样下发 settings.ai 会让后端拿默认服务商的端点去打另一个服务商的密钥
-  assert.match(store, /action: 'proofread',[\s\S]*?settings: resolveAIRequestSettings\(settings\.ai\) \?\? settings\.ai,/);
+  assert.match(store, /action: 'proofread',[\s\S]*?settings: resolveProjectAIRequestSettings\(settings\.ai, content\)/);
   // 伴写同理
-  assert.match(store, /action: 'companion',[\s\S]*?settings: resolveAIRequestSettings\(settings\.ai\) \?\? settings\.ai,/);
+  assert.match(store, /action: 'companion',[\s\S]*?settings: resolveProjectAIRequestSettings\(settings\.ai, content\)/);
   // 桌面端聊天同样走统一摊平逻辑
-  assert.match(store, /resolveAIRequestSettings\(appSettings\.ai, selection\)/);
+  assert.match(store, /resolveProjectAIRequestSettings\(appSettings\.ai, content, selection\)/);
+  assert.match(store, /resolveAIRequestSettings\(ai, selection\)/);
   // 旧的「仅在聊天内联解析档案」实现不应残留
   assert.doesNotMatch(store, /const profiles = parseAIProviderProfiles\(appSettings\.ai\.provider_profiles\)/);
 });
