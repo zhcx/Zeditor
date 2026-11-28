@@ -412,7 +412,88 @@ jobs:
         run: ./scripts/verify-windows-signatures.ps1 -BundleDirectory signed-stage-1
 
       - name: Bundle MSI and NSIS installers
+        id: bundle-installers
         run: npm run tauri bundle -- --target ${{ env.WINDOWS_TARGET }} --bundles msi,nsis --no-sign
+
+      # light.exe 的真实报错（ICE/LGHT0217/缺文件等）过去被 @tauri-apps/cli 2.11 吞掉，
+      # 日志里只剩 "failed to run light.exe"。升级到 2.12.6 后 bundle 步骤会直接打印错误；
+      # 这一步是兜底：用与 tauri 完全相同的参数手动重跑 light（完整环境 + tauri 清空环境
+      # 两种方式），并核对 main.wxs 里每个 Source 文件是否存在，确保无论如何都能拿到根因。
+      - name: Diagnose WiX light failure
+        if: ${{ failure() && steps.bundle-installers.outcome == 'failure' }}
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Continue'
+          Write-Host "== OS =="
+          $os = Get-CimInstance Win32_OperatingSystem
+          Write-Host "$($os.Caption) $($os.Version)"
+
+          $wixTools = Join-Path $env:LOCALAPPDATA 'tauri\WixTools314'
+          $wixDir = "src-tauri/target/$env:WINDOWS_TARGET/release/wix/x64"
+          if (-not (Test-Path $wixDir)) { $wixDir = "src-tauri/target/$env:WINDOWS_TARGET/release/wix" }
+          Write-Host "== wix dir: $wixDir =="
+          Get-ChildItem -LiteralPath $wixDir -Force -ErrorAction SilentlyContinue |
+            Format-Table Name, Length -AutoSize | Out-String | Write-Host
+
+          $mainWxs = Join-Path $wixDir 'main.wxs'
+          if (Test-Path $mainWxs) {
+            Write-Host "== Source files referenced by main.wxs =="
+            $m = Select-String -LiteralPath $mainWxs -Pattern 'Source="([^"]+)"' -AllMatches
+            $sources = $m.Matches | ForEach-Object { $_.Groups[1].Value } | Sort-Object -Unique
+            foreach ($s in $sources) {
+              $candidates = @(
+                $s,
+                (Join-Path $wixDir $s),
+                (Join-Path (Split-Path $wixDir -Parent) $s),
+                (Join-Path "src-tauri/target/$env:WINDOWS_TARGET/release" $s)
+              )
+              $found = $false
+              foreach ($c in $candidates) {
+                if (Test-Path -LiteralPath $c -ErrorAction SilentlyContinue) { $found = $true; break }
+              }
+              if ($found) { Write-Host "FOUND     $s" } else { Write-Host "MISSING   $s" }
+            }
+          }
+          else {
+            Write-Host "main.wxs not found at $mainWxs"
+          }
+
+          $light = Join-Path $wixTools 'light.exe'
+          if (-not (Test-Path $light)) { Write-Host "light.exe not found: $light"; exit 0 }
+
+          Push-Location $wixDir
+          $loc = Get-ChildItem -Filter *.wxl -ErrorAction SilentlyContinue | Select-Object -First 1
+          $wixobjs = Get-ChildItem -Filter *.wixobj -ErrorAction SilentlyContinue | ForEach-Object { $_.Name }
+          $outMsi = Join-Path (Get-Location) 'light-diag-output.msi'
+          $lightArgs = @('-o', $outMsi, '-cultures:en-us')
+          if ($loc) { $lightArgs += @('-loc', $loc.Name) }
+          $lightArgs += $wixobjs
+          $lightArgs += @('-ext', (Join-Path $wixTools 'WixUIExtension.dll'))
+          $lightArgs += @('-ext', (Join-Path $wixTools 'WixUtilExtension.dll'))
+
+          Write-Host "== rerun light with full environment =="
+          Write-Host "light.exe $($lightArgs -join ' ')"
+          & $light @lightArgs
+          Write-Host "light exit code: $LASTEXITCODE"
+
+          # 按 tauri clear_env_for_wix 的方式清空环境再跑一次（只保留 SYSTEMROOT/TMP/TEMP/TAURI*）
+          $saved = @(Get-ChildItem Env:)
+          foreach ($e in $saved) {
+            if ($e.Name -notlike 'TAURI*' -and $e.Name -notin @('SYSTEMROOT', 'TMP', 'TEMP')) {
+              Remove-Item -LiteralPath "Env:$($e.Name)" -ErrorAction SilentlyContinue
+            }
+          }
+          Write-Host "== rerun light with tauri-cleared environment =="
+          & $light @lightArgs
+          Write-Host "light(cleared env) exit code: $LASTEXITCODE"
+          foreach ($e in @(Get-ChildItem Env:)) {
+            Remove-Item -LiteralPath "Env:$($e.Name)" -ErrorAction SilentlyContinue
+          }
+          foreach ($e in $saved) {
+            Set-Item -LiteralPath "Env:$($e.Name)" -Value $e.Value -ErrorAction SilentlyContinue
+          }
+          Pop-Location
+          exit 0
 
       - name: Collect unsigned installers
         shell: pwsh
