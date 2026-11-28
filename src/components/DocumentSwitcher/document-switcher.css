@@ -1,7 +1,7 @@
 /* 顶部搜索以锚定在标题栏入口下方的下拉面板呈现，同时覆盖「打开的文档」与「工作区内容」。 */
 .document-switcher {
   position: fixed;
-  z-index: 13000;
+  z-index: var(--ui-z-command);
   display: flex;
   flex-direction: column;
   /* 纵向兜底滚动：极窄窗口展开高级选项时宁可滚动，也不要整块被裁掉点不到。 */

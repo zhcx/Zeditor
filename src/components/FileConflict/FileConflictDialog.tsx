@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { useModalFocus } from '../../hooks/useModalFocus';
 import type { FileConflict } from '../../stores/appStore';
 import './file-conflict.css';
 
@@ -15,6 +16,7 @@ export function FileConflictDialog({ conflict, onReload, onOpenDiskCopy, onSaveC
   const [confirmedConflict, setConfirmedConflict] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<{ key: string; message: string } | null>(null);
+  const dialogRef = useModalFocus<HTMLElement>(true, onClose);
   const diskExists = conflict.diskExists;
   const conflictKey = `${conflict.tabId}:${conflict.diskFileVersion?.sha256 || 'missing'}:${conflict.localContent}`;
   const confirmOverwrite = confirmedConflict === conflictKey;
@@ -36,13 +38,13 @@ export function FileConflictDialog({ conflict, onReload, onOpenDiskCopy, onSaveC
 
   return (
     <div className="file-conflict-overlay">
-      <section className="file-conflict-dialog" role="alertdialog" aria-modal="true" aria-labelledby="file-conflict-title">
+      <section ref={dialogRef} className="file-conflict-dialog" role="alertdialog" aria-modal="true" aria-labelledby="file-conflict-title">
         <header className="file-conflict-header">
           <div>
             <h2 id="file-conflict-title">文件在其他位置已更改</h2>
             <p title={conflict.path}>{conflict.path} · 自动保存已暂停</p>
           </div>
-          <button type="button" onClick={onClose} aria-label="返回编辑">返回编辑</button>
+          <button data-autofocus type="button" onClick={onClose} aria-label="返回编辑">返回编辑</button>
         </header>
 
         <div className="file-conflict-columns">

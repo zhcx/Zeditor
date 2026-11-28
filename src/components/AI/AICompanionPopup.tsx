@@ -104,7 +104,7 @@ export function AICompanionPopup() {
         )}
       </div>
       <div className="ai-companion-footer">
-        <span className="ai-companion-tip">点击任一建议插入到当前光标处</span>
+        <span className="ai-companion-tip">正文已显示续写；Tab 接受，点击建议仍可确认</span>
         <button className="ai-companion-btn refresh" onClick={handleRefresh}>
           刷新
         </button>

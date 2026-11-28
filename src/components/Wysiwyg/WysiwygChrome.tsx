@@ -3,13 +3,14 @@ import { createPortal } from 'react-dom';
 import { ImageOptionsModal, Toolbar } from '../Toolbar/Toolbar';
 import { SlashCommandMenu, type SlashMenuAnchor } from '../Editor/SlashCommandMenu';
 import { TableToolbar } from '../Editor/TableToolbar';
-import { filterSlashCommands, findSlashCommandTrigger, resolveSlashSelection, type SlashCommand, type SlashCommandTrigger } from '../../utils/slashCommands';
+import { createPluginSlashCommands, filterSlashCommands, findSlashCommandTrigger, resolveSlashSelection, type SlashCommand, type SlashCommandTrigger } from '../../utils/slashCommands';
 import { applyTableAction, alignmentAt, insertTable, navigateTableCell, parseTableAt, type TableAction } from '../../utils/markdownTable';
 import { prepareMarkdownPaste } from '../../utils/markdownPaste';
 import { lineAtOffset } from '../../utils/wysiwyg/textLines';
 import { extractGenieTarget, slashAiGenie } from '../../utils/aiGenies';
 import { useAppStore } from '../../stores/appStore';
 import { useAIStore } from '../../stores/aiStore';
+import { usePluginStore } from '../../stores/pluginStore';
 import { isNativeMenuActive } from '../../utils/platform';
 import type { WysiwygSession } from './wysiwygSession';
 
@@ -29,7 +30,11 @@ export function WysiwygChrome({ session, surface, version, pinned }: Props) {
   const dismissed = useRef('');
   const previousQuery = useRef('');
   const draggingSelection = useRef(false);
-  const commands = useMemo(() => filterSlashCommands(slash?.query ?? ''), [slash?.query]);
+  const plugins = usePluginStore(state => state.plugins);
+  const pluginSlashCommands = useMemo(() => createPluginSlashCommands(plugins.flatMap(record => record.enabled
+    ? record.manifest.contributions.slash.map(item => ({ ...item, pluginId: record.manifest.id }))
+    : [])), [plugins]);
+  const commands = useMemo(() => filterSlashCommands(slash?.query ?? '', pluginSlashCommands), [slash?.query, pluginSlashCommands]);
   const closeSlash = useCallback(() => {
     if (slash) dismissed.current = `${slash.from}:${slash.query}`;
     setSlash(null);
@@ -175,7 +180,7 @@ export function WysiwygChrome({ session, surface, version, pinned }: Props) {
         // 用最新源码重算候选：菜单刷新走 rAF，快速键入后立刻确认时状态可能滞后一帧；
         // 重算失败（光标已不在斜杠 token 内）时退回组件状态与既有候选。
         const liveTrigger = resolveSlashSelection(session.getVisibleSource(), session.getSelectionOffsets().from) ?? slash;
-        const visible = filterSlashCommands(liveTrigger.query);
+        const visible = filterSlashCommands(liveTrigger.query, pluginSlashCommands);
         // 与源码编辑器一致：Enter 与 Tab 都是「确认当前项」。
         if (event.key === 'Enter' || event.key === 'Tab') {
           const command = visible[Math.min(selectedIndex, visible.length - 1)];
@@ -232,7 +237,7 @@ export function WysiwygChrome({ session, surface, version, pinned }: Props) {
     window.addEventListener('zeditor-insert-image', insertImageRequest);
     window.addEventListener('zeditor-insert-markmap', insertMarkmapRequest);
     return () => { surface.removeEventListener('keydown', keydown, true); window.removeEventListener('zeditor-table-action', tableRequest); window.removeEventListener('zeditor-insert-table', insertTableRequest); window.removeEventListener('zeditor-insert-image', insertImageRequest); window.removeEventListener('zeditor-insert-markmap', insertMarkmapRequest); };
-  }, [surface, slash, commands, selectedIndex, selectCommand, closeSlash, runTableAction, session]);
+  }, [surface, slash, commands, selectedIndex, selectCommand, closeSlash, runTableAction, session, pluginSlashCommands]);
 
   return createPortal(<>
     {imageOpen && <ImageOptionsModal onClose={() => setImageOpen(false)} onInsert={(url, alt) => { const editor = useAppStore.getState().editorView; editor?.replaceRange(imageSelection.current.from, imageSelection.current.to, `![${alt ?? '图片'}](${url})`); setImageOpen(false); editor?.focus(); }} />}

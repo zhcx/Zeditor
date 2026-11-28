@@ -105,6 +105,14 @@ it('serializes task items from the checkbox state', () => {
   assert.equal(result.markdown, '- [x] 已完成\n- [ ] 待办');
 });
 
+it('keeps ordered task lists ordered, including their start number', () => {
+  const result = serializeBlockMarkdown('list', [elementNode('ol', { start: '3' }, [
+    li(checkbox(true), textNode('已完成')),
+    li(checkbox(false), textNode('待办')),
+  ])]);
+  assert.equal(result.markdown, '3. [x] 已完成\n4. [ ] 待办');
+});
+
 it('refuses to serialize block types that are not editable in place', () => {
   assert.throws(() => serializeBlockMarkdown('fence', []), /不支持就地编辑/);
 });

@@ -41,7 +41,7 @@ export function contentFontStack(fontFamily?: string): string {
   // 未指定字体时按平台取系统字体：macOS 回落到微软雅黑会明显「像 Windows 软件」。
   const fallback = isMacOS()
     ? '-apple-system, BlinkMacSystemFont, "SF Pro Text", "PingFang SC", "Hiragino Sans GB", "Helvetica Neue", sans-serif'
-    : '"Microsoft YaHei", sans-serif';
+    : '"Microsoft YaHei", "Segoe UI", "Noto Sans CJK SC", system-ui, sans-serif';
   return family ? `${family}, ${fallback}` : fallback;
 }
 

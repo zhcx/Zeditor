@@ -1,13 +1,15 @@
 import { AppIcon } from '../Icons/AppIcon';
 import type { IconName } from '../Icons/iconGeometry';
 import { useShallow } from 'zustand/react/shallow';
-import { useCallback, useEffect, useRef, useState, type CSSProperties } from 'react';
+import { useCallback, useEffect, useState, type CSSProperties } from 'react';
+import { useModalFocus } from '../../hooks/useModalFocus';
 import { AI_PROVIDER_DEFINITIONS, providerNeedsKey, useAppStore, type AIProviderId, type ConverterModuleStatus, type SettingsTab, type Settings } from '../../stores/appStore';
 import { invoke } from '@tauri-apps/api/core';
 import { open } from '@tauri-apps/plugin-dialog';
 import { FontFamilyPicker } from './FontFamilyPicker';
 import { SettingsSelect } from './SettingsSelect';
 import { LineWidthSetting } from './LineWidthSetting';
+import { writeClipboardText } from '../../utils/clipboard';
 import {
   DEFAULT_FONT_SIZE,
   FONT_SIZE_MAX,
@@ -29,6 +31,8 @@ import { parseAIProviderProfiles } from '../../utils/aiProviderProfiles';
 import { WebDavSettings } from '../WebDav/WebDavSettings';
 import { S3Settings } from '../WebDav/S3Settings';
 import { WebDavHistoryDialog } from '../WebDav/WebDavHistoryDialog';
+import { ProjectContextPanel } from './ProjectContextPanel';
+import { SafePluginsPanel } from './SafePluginsPanel';
 import '../../styles/settings-ui.css';
 
 const isTauriRuntime = () => '__TAURI_INTERNALS__' in window;
@@ -219,7 +223,7 @@ const fetchModelsFromApi = async (apiKey: string, apiEndpoint: string, provider?
   });
 };
 
-const SettingsNavIconNames = {"appearance":"palette","editor":"penLine","image":"image","export":"download","web_search":"webSearch","explorer":"folder","workflow":"workflow","converter":"fileConvert","cloud":"cloudSync","ai":"assistant","mcp":"plug"} as const satisfies Record<string, IconName>;
+const SettingsNavIconNames = {"appearance":"palette","editor":"penLine","image":"image","export":"download","web_search":"webSearch","explorer":"folder","workflow":"workflow","converter":"fileConvert","cloud":"cloudSync","ai":"assistant","mcp":"plug","project_context":"notebook","extensions":"package"} as const satisfies Record<string, IconName>;
 
 function SettingsNavIcon({ type }: { type: SettingsTab }) {
   return <AppIcon name={SettingsNavIconNames[type]} />;
@@ -227,9 +231,15 @@ function SettingsNavIcon({ type }: { type: SettingsTab }) {
 
 interface McpClientStatus {
   client: string;
+  label: string;
+  format: 'json' | 'toml' | 'yaml';
+  transport: string;
   configured: boolean;
   path_mismatch: boolean;
   path: string;
+  snippet: string;
+  note: string;
+  error: string | null;
 }
 
 const MCP_CLIENT_LABELS: Record<string, string> = {
@@ -237,12 +247,23 @@ const MCP_CLIENT_LABELS: Record<string, string> = {
   claude_code: 'Claude Code',
   codex: 'Codex CLI',
   gemini: 'Gemini CLI',
+  pi: 'Pi Agent',
+  deepseek_harness: 'DeepSeek Harness',
+  workbuddy: 'WorkBuddy',
+  qoder: 'Qoder',
+  qoder_cn: 'Qoder CN',
+  generic: '通用 Harness',
 };
 
-/** MCP 集成状态：桥接运行状态 + 各 AI 助手配置安装入口（对齐 VMark 的设置 → 集成）。 */
+/** MCP 集成状态：桥接自检 + 客户端配置安装、修复与手动连接。 */
 function McpIntegrationStatus() {
   const [status, setStatus] = useState<Record<string, unknown> | null>(null);
   const [clients, setClients] = useState<McpClientStatus[]>([]);
+  const [query, setQuery] = useState('');
+  const [busyClient, setBusyClient] = useState<string | null>(null);
+  const [copiedClient, setCopiedClient] = useState<string | null>(null);
+  const [actionError, setActionError] = useState('');
+  const [probe, setProbe] = useState<{ state: 'idle' | 'loading' | 'success' | 'error'; message: string }>({ state: 'idle', message: '' });
 
   const refresh = useCallback(() => {
     if (!('__TAURI_INTERNALS__' in window)) return;
@@ -259,6 +280,49 @@ function McpIntegrationStatus() {
 
   const running = Boolean(status?.running);
   const connected = Number(status?.connected || 0);
+  const normalizedQuery = query.trim().toLocaleLowerCase();
+  const rows = Object.entries(MCP_CLIENT_LABELS)
+    .map(([client, fallbackLabel]) => {
+      const entry = clients.find(item => item.client === client);
+      return {
+        client,
+        label: entry?.label || fallbackLabel,
+        entry,
+        searchText: `${fallbackLabel} ${entry?.path || ''} ${entry?.format || ''}`.toLocaleLowerCase(),
+      };
+    })
+    .filter(row => !normalizedQuery || row.searchText.includes(normalizedQuery));
+
+  const install = async (client: string) => {
+    setBusyClient(client); setActionError('');
+    try {
+      await invoke<McpClientStatus>('mcp_install_client_config', { client });
+      await refresh();
+    } catch (error) {
+      setActionError(String(error));
+    } finally { setBusyClient(null); }
+  };
+
+  const copySnippet = async (client: string) => {
+    const snippet = clients.find(item => item.client === client)?.snippet;
+    if (!snippet) { setActionError('当前无法生成配置，请确认已安装 Zeditor 桌面版。'); return; }
+    setActionError('');
+    const copied = await writeClipboardText(snippet);
+    if (!copied) { setActionError('复制失败，请手动复制配置。'); return; }
+    setCopiedClient(client);
+    window.setTimeout(() => setCopiedClient(current => current === client ? null : current), 1600);
+  };
+
+  const probeServer = async () => {
+    setProbe({ state: 'loading', message: '正在启动 sidecar 并完成 MCP 握手…' });
+    try {
+      const result = await invoke<Record<string, unknown>>('mcp_probe_server');
+      setProbe({ state: 'success', message: `连接正常 · ${String(result.tools ?? 0)} 个工具 · 协议 ${String(result.protocolVersion ?? '')}` });
+      await refresh();
+    } catch (error) {
+      setProbe({ state: 'error', message: String(error) });
+    }
+  };
 
   return (
     <>
@@ -270,46 +334,61 @@ function McpIntegrationStatus() {
             : '未运行'}
         </small>
       </div>
-      <div className="settings-actions">
+      <div className="settings-actions mcp-bridge-actions">
+        <button type="button" className="secondary-btn" disabled={probe.state === 'loading'} onClick={() => void probeServer()}>
+          {probe.state === 'loading' ? '正在自检…' : '测试 MCP 连接'}
+        </button>
         <button
           type="button"
           className="secondary-btn"
           onClick={() => {
+            setActionError('');
             invoke<Record<string, unknown>>('mcp_bridge_set_enabled', { enabled: !running })
-              .then(setStatus)
-              .catch((error) => window.alert(String(error)));
+              .then(async next => { setStatus(next); await refresh(); })
+              .catch(error => setActionError(String(error)));
           }}
         >
           {running ? '停止桥接' : '启动桥接'}
         </button>
       </div>
+      {probe.state !== 'idle' && <div className={`mcp-probe-result ${probe.state}`} role="status">{probe.message}</div>}
+      {actionError && <div className="mcp-probe-result error" role="alert">{actionError}</div>}
       <div className="setting-item mcp-clients-item">
         <div className="setting-copy">
           <span>AI 助手配置</span>
-          <small>一键写入 MCP 配置；安装后需完全重启对应的 AI 助手</small>
+          <small>支持 Claude、Codex、Gemini、Pi、DeepSeek Harness、WorkBuddy、Qoder 与通用 MCP 客户端。写入前自动备份，损坏配置不会被覆盖。</small>
         </div>
+        <label className="mcp-client-search">
+          <AppIcon name="search" size={15} />
+          <input aria-label="搜索 AI 助手" placeholder="搜索助手或配置路径…" value={query} onChange={event => setQuery(event.target.value)} />
+        </label>
         <div className="mcp-client-list">
-          {Object.entries(MCP_CLIENT_LABELS).map(([client, label]) => {
-            const entry = clients.find((item) => item.client === client);
-            return (
-              <div key={client} className="mcp-client-row">
-                <span className="mcp-client-name">{label}</span>
+          {rows.map(({ client, label, entry }) => (
+            <div key={client} className="mcp-client-row">
+              <div className="mcp-client-info">
+                <div className="mcp-client-title">
+                  <strong>{label}</strong>
+                  <span className="mcp-client-format">{(entry?.format || 'json').toUpperCase()} · stdio</span>
+                </div>
+                {entry?.path && <small className="mcp-client-path" title={entry.path}>{entry.path}</small>}
+                <small className="mcp-client-note">{entry?.note || '正在读取客户端配置…'}</small>
+                {entry?.error && <small className="mcp-client-error" role="alert">{entry.error}</small>}
+              </div>
+              <div className="mcp-client-actions">
                 {entry?.configured && !entry.path_mismatch && <span className="mcp-client-status ok"><AppIcon name="check" size={14} /> 已安装</span>}
-                {entry?.path_mismatch && <span className="mcp-client-status warn">⚠ 路径不匹配</span>}
-                <button
-                  type="button"
-                  className="secondary-btn"
-                  onClick={() => {
-                    invoke<McpClientStatus>('mcp_install_client_config', { client })
-                      .then(() => refresh())
-                      .catch((error) => window.alert(String(error)));
-                  }}
-                >
-                  {entry?.configured ? '修复' : '安装'}
+                {entry?.path_mismatch && <span className="mcp-client-status warn">路径不匹配</span>}
+                {client !== 'generic' && (
+                  <button type="button" className="secondary-btn" disabled={busyClient === client} onClick={() => void install(client)}>
+                    {busyClient === client ? '写入中…' : entry?.configured ? '修复' : '安装'}
+                  </button>
+                )}
+                <button type="button" className="secondary-btn" disabled={!entry?.snippet} onClick={() => void copySnippet(client)}>
+                  {copiedClient === client ? '已复制' : '复制配置'}
                 </button>
               </div>
-            );
-          })}
+            </div>
+          ))}
+          {!rows.length && <div className="mcp-client-empty">没有匹配的 AI 助手。</div>}
         </div>
       </div>
     </>
@@ -377,29 +456,25 @@ export function SettingsPanel() {
     void saveSettings({ ...latest, editor: { ...latest.editor, ...patch } });
   };
 
+  // MCP 总开关需要立即启动 / 断开桥接，不能等到设置页点击保存。
+  const applyMcpSetting = (patch: Partial<Settings['mcp']>) => {
+    const latest = useAppStore.getState().settings;
+    const nextSettings = { ...latest, mcp: { ...latest.mcp, ...patch } };
+    setLocalSettings(previous => ({ ...previous, mcp: { ...previous.mcp, ...patch } }));
+    void saveSettings(nextSettings);
+    if (typeof patch.enabled === 'boolean' && '__TAURI_INTERNALS__' in window) {
+      void invoke('mcp_bridge_set_enabled', { enabled: patch.enabled }).catch(() => undefined);
+    }
+  };
+
   const handleCancel = () => {
     previewContentFontSize(settings.appearance.font_size, settings.appearance.font_family);
     previewTypography(settings.appearance);
     setSettingsOpen(false);
   };
-
-  // Esc 关闭设置面板（等价于「取消」，同时撤回字号 / 行宽等预览）。
-  // 面板内的下拉、字体选择与同步历史对话框会先处理自己的 Esc（preventDefault 或仍打开），
-  // 这时不关闭面板。
-  const cancelRef = useRef(handleCancel);
-  useEffect(() => {
-    cancelRef.current = handleCancel;
-  });
-  useEffect(() => {
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key !== 'Escape' || event.isComposing || event.defaultPrevented) return;
-      if (document.querySelector('.webdav-history-dialog')) return;
-      event.preventDefault();
-      cancelRef.current();
-    };
-    window.addEventListener('keydown', onKeyDown);
-    return () => window.removeEventListener('keydown', onKeyDown);
-  }, []);
+  // 设置面板只在打开时挂载；统一处理焦点圈定、Esc 与关闭后焦点恢复。
+  // 下拉或历史对话框先处理 Esc 并 preventDefault 时，不会冒泡到这里。
+  const dialogRef = useModalFocus<HTMLDivElement>(true, handleCancel);
 
   const loadLocalFonts = async () => {
     const queryLocalFonts = (window as LocalFontAccessWindow).queryLocalFonts;
@@ -500,6 +575,8 @@ export function SettingsPanel() {
     { id: 'image', label: '图床', description: '图片上传与存储服务' },
     { id: 'export', label: '导出', description: '文档导出与版式设置' },
     { id: 'ai', label: 'AI 助手', description: '模型、提示与伴写设置' },
+    { id: 'project_context', label: '项目 AI 配置', description: '文风、资料库、技能与请求上下文' },
+    { id: 'extensions', label: '安全插件', description: '声明式插件、白名单动作与斜杠命令' },
     { id: 'explorer', label: '资源管理器', description: '文件浏览与工作区管理' },
     { id: 'workflow', label: '工作流', description: 'GitHub Actions 工作流查看器与结构化编辑' },
     { id: 'mcp', label: '集成', description: 'MCP 服务器与 AI 助手接入' },
@@ -519,10 +596,10 @@ export function SettingsPanel() {
 
   return (
     <div className="settings-overlay" onClick={handleCancel}>
-      <div className="settings-panel" onClick={(e) => e.stopPropagation()}>
+      <div ref={dialogRef} className="settings-panel" role="dialog" aria-modal="true" aria-labelledby="settings-title" onClick={(e) => e.stopPropagation()}>
         <aside className="settings-navigation">
           <div className="settings-navigation-header">
-            <button className="close-btn" onClick={handleCancel} aria-label="关闭设置">
+            <button data-autofocus className="close-btn" onClick={handleCancel} aria-label="关闭设置">
               <AppIcon name="close" size={20}  />
             </button>
             <span>设置</span>
@@ -532,6 +609,9 @@ export function SettingsPanel() {
             <button
               key={tab.id}
               className={`tab-btn ${activeTab === tab.id ? 'active' : ''}`}
+              aria-label={tab.label}
+              aria-current={activeTab === tab.id ? 'page' : undefined}
+              title={tab.label}
               onClick={() => setActiveTab(tab.id)}
             >
               <SettingsNavIcon type={tab.id} />
@@ -544,7 +624,7 @@ export function SettingsPanel() {
         <section className="settings-main">
           <div className="settings-header">
             <div>
-              <h2>{activeTabMeta.label}</h2>
+              <h2 id="settings-title">{activeTabMeta.label}</h2>
               <p>{activeTabMeta.description}</p>
             </div>
           </div>
@@ -1823,12 +1903,9 @@ export function SettingsPanel() {
             <div className="settings-section">
               <SettingToggle
                 label="启用 MCP 服务器"
-                description="允许 Claude、Codex 等 AI 助手通过 MCP 协议读写文档；配置安装后需重启 AI 助手"
+                description="允许 AI 助手通过 MCP 协议读写文档；开关会立即启动或断开桥接"
                 checked={localSettings.mcp.enabled}
-                onChange={(checked) => setLocalSettings({
-                  ...localSettings,
-                  mcp: { ...localSettings.mcp, enabled: checked },
-                })}
+                onChange={(checked) => applyMcpSetting({ enabled: checked })}
               />
               {localSettings.mcp.enabled && (
                 <>
@@ -1958,6 +2035,9 @@ export function SettingsPanel() {
               )}
             </div>
           )}
+
+          {activeTab === 'project_context' && <ProjectContextPanel />}
+          {activeTab === 'extensions' && <SafePluginsPanel />}
 
           {activeTab === 'cloud' && (
             <div className="settings-section">

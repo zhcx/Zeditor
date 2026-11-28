@@ -13,6 +13,8 @@ import type { WysiwygBlockKind, WysiwygDocument } from '../../utils/wysiwyg/bloc
 import { findHeadingFoldSections, foldedBlockIndexes, type HeadingFoldSection } from '../../utils/wysiwyg/headingFolds';
 import { resolveEditorDisplay } from '../../utils/editorDisplay';
 import { documentHistory } from '../../utils/documentHistory';
+import { isActiveEditorDocument } from '../../utils/editorDocumentIdentity';
+import { resolveExternalEditorSource } from '../../utils/editorTransitionSafety';
 import { editorViewMemory } from '../../utils/editorViewMemory';
 import { revealElement } from './domCaret';
 import { isPrimaryModifier } from '../../utils/platform';
@@ -20,6 +22,7 @@ import { blockInsertion } from '../../utils/wysiwyg/blockMenu';
 import { createBlockHtmlRenderer } from '../../utils/wysiwyg/blockHtml';
 import { escapeInlineText } from '../../utils/wysiwyg/inlineSerialize';
 import { nextBlockRenderBudget } from '../../utils/wysiwyg/renderBudget';
+import { resolveBlockSourceDraft, resolveBlockSourceDraftIndex, type BlockSourceDraftLocation } from '../../utils/wysiwyg/blockSourceDraft';
 import { extractFenceCode, extractFenceLanguage } from '../../utils/wysiwyg/codeFence';
 import { hasTrailingEmptyQuoteLine } from '../../utils/wysiwyg/blockOps';
 import { renderInlinePasteFragment } from '../../utils/wysiwyg/inlinePaste';
@@ -39,6 +42,8 @@ import { WysiwygChrome } from './WysiwygChrome';
 import { ProofreadHighlights } from './ProofreadHighlights';
 import { AppIcon } from '../Icons/AppIcon';
 import { formatShortcut } from '../../utils/platformShortcuts';
+import { canAcceptGhostText, reviewProposalDecorations, validateReviewProposal, type ReviewDecoration } from '../../utils/reviewModel.ts';
+import { useReviewStore } from '../../stores/reviewStore.ts';
 
 /** 自动 AI 伴写与源码编辑器保持同一组阈值，保证两种模式的触发节奏一致。 */
 const AUTO_COMPANION_MIN_INTERVAL = 1200;
@@ -89,6 +94,7 @@ interface WysiwygBlockViewProps {
   onRedoHistory: () => void;
   onInlineClick: (event: React.MouseEvent<HTMLElement>) => boolean;
   onApplyBlockSource: (index: number, source: string) => void;
+  onSourceDraftChange: (index: number, draft: string | null) => void;
   onEndSourceEditing: (index: number) => void;
   onDeleteBlock: (index: number) => void;
   onInsertAfter: (index: number, kind: BlockInsertKind) => void;
@@ -145,7 +151,7 @@ function observeHandleMeasure(target: Element, measure: () => void) {
 const WysiwygBlockView = memo(function WysiwygBlockView({
   index, kind, source, startLine, editable, skipRender, renderRevision, documentPath, workflowViewerEnabled,
   scrollRoot, theme, foldKey, folded, foldIndentation, onToggleFold, registerElement, onInput, onBlurBlock,
-  onCommitCode, onUndoHistory, onRedoHistory, onInlineClick, onApplyBlockSource, onEndSourceEditing, onDeleteBlock, onInsertAfter, onMove, onDuplicate, onRetype, count,
+  onCommitCode, onUndoHistory, onRedoHistory, onInlineClick, onApplyBlockSource, onSourceDraftChange, onEndSourceEditing, onDeleteBlock, onInsertAfter, onMove, onDuplicate, onRetype, count,
 }: WysiwygBlockViewProps) {
   const hostRef = useRef<HTMLElement>(null);
   /** 有子列表的列表项缓存：折叠缩进的点击命中测试用，输入时失效。 */
@@ -350,13 +356,14 @@ const WysiwygBlockView = memo(function WysiwygBlockView({
           <AppIcon name={folded ? 'chevronRight' : 'chevronDown'} size={14} />
         </button>
       )}
-      {kind === 'fence' && <WysiwygCodeBlock index={index} code={extractFenceCode(source)} language={extractFenceLanguage(source)} onCommit={(position, code, language) => { onCommitCode(position, code, language); if (!codeEditing) onBlurBlock(index, null); }} editing={codeEditing} selection={codeSelection} onUndo={onUndoHistory} onRedo={onRedoHistory} onEditingChange={editing => { setCodeEditing(editing); if (!editing) onBlurBlock(index, null); }} />}
+      {kind === 'fence' && <WysiwygCodeBlock index={index} code={extractFenceCode(source)} language={extractFenceLanguage(source)} onCommit={onCommitCode} editing={codeEditing} selection={codeSelection} onUndo={onUndoHistory} onRedo={onRedoHistory} onEditingChange={setCodeEditing} />}
       {sourceEditing && (
         <BlockSourceEditor
           initialSelection={sourceSelection}
           title={sourceEditorTitle(kind)}
           source={source}
-          onApply={(next) => { setSourceEditing(false); onApplyBlockSource(index, next); }}
+          onDraftChange={draft => onSourceDraftChange(index, draft)}
+          onApply={(next) => { onSourceDraftChange(index, null); setSourceEditing(false); onApplyBlockSource(index, next); }}
           onClose={() => { setSourceEditing(false); onEndSourceEditing(index); }}
         />
       )}
@@ -459,10 +466,16 @@ export function WysiwygEditor() {
   const surfaceRef = useRef<HTMLDivElement>(null);
   const blockElementsRef = useRef(new Map<number, HTMLElement>());
   const pendingRevealRef = useRef<number | null>(null);
+  const sourceDraftsRef = useRef(new Map<number, BlockSourceDraftLocation & { draft: string }>());
   const [scrollRoot, setScrollRoot] = useState<HTMLElement | null>(null);
   const theme = document.documentElement.dataset.theme || 'vscode-dark';
   const [initialView] = useState(() => activeTabId ? editorViewMemory.peek(activeTabId, 'wysiwyg') : undefined);
   const initialViewRestored = useRef(false);
+  const cancelInitialViewRestore = useCallback(() => {
+    if (initialViewRestored.current) return;
+    initialViewRestored.current = true;
+    if (activeTabId) editorViewMemory.discardPending(activeTabId, 'wysiwyg');
+  }, [activeTabId]);
 
   // 会话只建一次；它是普通对象，不受 React 状态更新影响。放在 useState 里而不是
   // useRef 里，是因为 react-hooks/refs 禁止在渲染期读 ref。
@@ -486,6 +499,52 @@ export function WysiwygEditor() {
     return next;
   });
   const [snapshot, setSnapshot] = useState<WysiwygSessionSnapshot>(() => session.getSnapshot());
+
+  const handleSourceDraftChange = useCallback((index: number, draft: string | null) => {
+    if (draft === null) {
+      sourceDraftsRef.current.delete(index);
+      return;
+    }
+    const blocks = session.getBlocks();
+    const block = blocks[index];
+    if (!block) return;
+    const previous = sourceDraftsRef.current.get(index);
+    sourceDraftsRef.current.set(index, {
+      index,
+      baseSource: previous?.baseSource ?? block.source,
+      kind: previous?.kind ?? block.kind,
+      blockCount: previous?.blockCount ?? blocks.length,
+      previousSource: previous?.previousSource ?? blocks[index - 1]?.source ?? null,
+      nextSource: previous?.nextSource ?? blocks[index + 1]?.source ?? null,
+      draft,
+    });
+  }, [session]);
+
+  const flushSourceDrafts = useCallback(() => {
+    const drafts = [...sourceDraftsRef.current.entries()];
+    sourceDraftsRef.current.clear();
+    for (const [index, location] of drafts) {
+      const { baseSource, draft } = location;
+      const blocks = session.getBlocks();
+      const targetIndex = resolveBlockSourceDraftIndex(location, blocks);
+      if (targetIndex < 0) {
+        window.alert('正在编辑的块已被删除或重构，未保存的块源码草稿无法安全应用。');
+        continue;
+      }
+      const currentSource = blocks[targetIndex].source;
+      const next = resolveBlockSourceDraft(baseSource, currentSource, draft, () => window.confirm(
+        '此块源码在编辑期间已被外部更新。仍要用未保存的草稿覆盖当前版本吗？',
+      ));
+      if (next === currentSource && currentSource !== baseSource) {
+        // 用户拒绝覆盖后继续保留草稿，避免外部版本恢复时无法再应用。
+        sourceDraftsRef.current.set(index, location);
+        continue;
+      }
+      sourceDraftsRef.current.delete(index);
+      if (next !== currentSource) session.replaceBlock(targetIndex, next);
+    }
+  }, [session]);
+
   /** 已折叠的标题分节键（见 utils/wysiwyg/headingFolds）。 */
   const [collapsedHeadings, setCollapsedHeadings] = useState<ReadonlySet<string>>(() => headingFoldsByTab.get(activeTabId ?? '') ?? new Set<string>());
   const foldStateRef = useRef<{
@@ -685,6 +744,8 @@ export function WysiwygEditor() {
     const controller = createWysiwygController({
       session,
       tabId: activeTabId,
+      isCurrentDocument: () => isActiveEditorDocument(activeTabId, session.getSource(), useAppStore.getState()),
+      flushLocalEdits: flushSourceDrafts,
       getScrollDOM: () => surfaceRef.current,
       getCaretRange: () => {
         const selection = window.getSelection();
@@ -701,20 +762,69 @@ export function WysiwygEditor() {
         }));
       },
     });
+    const disposeReviewKeyDown = controller.onReviewKeyDown?.(event => {
+      const ai = useAIStore.getState();
+      const ghost = ai.ghostText;
+      if (!ghost || ghost.tabId !== activeTabId) return false;
+      const selection = controller.getSelection();
+      if (!canAcceptGhostText(event, ghost.anchor, selection, ghost.revision, controller.getRevision?.())) return false;
+      ai.acceptGhostText();
+      return true;
+    });
     setEditorView(controller);
     markEditorBootReady();
     return () => {
+      disposeReviewKeyDown?.();
+      controller.setGhostText?.(null);
+      controller.setReviewDecorations?.([]);
       pendingRevealRef.current = null;
       session.flushWriteBack();
       // 只有当 store 里仍指向自己时才清空，避免与源码对照模式的挂载竞争。
       if (useAppStore.getState().editorView === controller) setEditorView(null);
     };
-  }, [activeTabId, markEditorBootReady, session, setEditorView]);
+  }, [activeTabId, flushSourceDrafts, markEditorBootReady, session, setEditorView]);
 
-  // 外部内容变化（AI、时间线、切换标签）同步进会话。
+  // 外部内容变化（AI、时间线、切换标签）同步进会话。effect 执行时读取最新 store，
+  // 防止并发渲染期间把旧快照写回已经切走的文档。
   useEffect(() => {
-    session.syncExternalSource(content);
-  }, [content, session]);
+    const source = resolveExternalEditorSource(useAppStore.getState(), activeTabId);
+    if (source !== null) session.syncExternalSource(source);
+  }, [activeTabId, content, session]);
+
+  const pendingEdit = useAIStore(state => state.pendingEdit);
+  const ghostText = useAIStore(state => state.ghostText);
+  const reviewComments = useReviewStore(state => state.comments);
+  const reviewDocumentKey = useReviewStore(state => state.documentKey);
+  useEffect(() => {
+    const controller = useAppStore.getState().editorView;
+    if (!controller?.setReviewDecorations || !controller.setGhostText || controller.tabId !== activeTabId) return;
+    const current = controller.getValue();
+    const revision = controller.getRevision?.();
+    const decorations: ReviewDecoration[] = pendingEdit && validateReviewProposal(pendingEdit, current, revision, activeTabId).ok
+      ? reviewProposalDecorations(pendingEdit) : [];
+    for (const comment of reviewComments[reviewDocumentKey] ?? []) {
+      if (comment.resolved || comment.to <= comment.from) continue;
+      decorations.push({ id: `comment-${comment.id}`, from: comment.from, to: comment.to, kind: comment.stale ? 'comment-stale' : 'comment', text: comment.quote });
+    }
+    controller.setReviewDecorations(decorations);
+    const syncGhost = () => {
+      const selection = controller.getSelection();
+      const valid = ghostText && ghostText.tabId === activeTabId && ghostText.revision === controller.getRevision?.()
+        && selection.empty && selection.from === ghostText.anchor && selection.to === ghostText.anchor;
+      controller.setGhostText?.(valid ? { anchor: ghostText.anchor, text: ghostText.text, revision: ghostText.revision } : null);
+    };
+    syncGhost();
+    const ownerDocument = controller.scrollDOM.ownerDocument;
+    ownerDocument.addEventListener('selectionchange', syncGhost);
+    const unsubscribe = controller.onScroll(() => {
+      controller.setReviewDecorations?.(decorations);
+      syncGhost();
+    });
+    return () => {
+      ownerDocument.removeEventListener('selectionchange', syncGhost);
+      unsubscribe();
+    };
+  }, [activeTabId, content, snapshot.version, pendingEdit, ghostText, reviewComments, reviewDocumentKey]);
 
   // 卸载前落盘，避免丢失最后一次输入。
   useEffect(() => () => session.flushWriteBack(), [session]);
@@ -896,6 +1006,8 @@ export function WysiwygEditor() {
     if (target?.closest('button, input, textarea, select, .wysiwyg-block-actions, .wysiwyg-source-layer, .wysiwyg-code-layer')) return;
     if (blockIndexFromEvent(event.nativeEvent) === null) { event.preventDefault(); return; }
     const input = event.nativeEvent as InputEvent;
+    const index = blockIndexFromEvent(event.nativeEvent);
+    if (index !== null) session.beginInput(index);
     if (input.isComposing || typeof input.data !== 'string') return;
     const selection = session.getSelectionOffsets();
     if (selection.from !== selection.to && session.blockIndexAtOffset(selection.from) !== session.blockIndexAtOffset(selection.to)) {
@@ -903,7 +1015,6 @@ export function WysiwygEditor() {
       session.replaceRange(selection.from, selection.to, escapeInlineText(input.data));
     }
     // beforeinput 在 WebKit 下比 input 更可靠：先记下这次输入，防抖结束后再读取最新正文。
-    const index = blockIndexFromEvent(event.nativeEvent);
     if (index !== null) scheduleCompanion(index);
   }, [blockIndexFromEvent, scheduleCompanion, session]);
 
@@ -1104,6 +1215,8 @@ export function WysiwygEditor() {
   }, [activeTabId, initialView, renderBudget, session, snapshot.document.blocks.length, snapshot.version]);
 
   const toggleHeadingFold = useCallback((key: string) => {
+    // 折叠会卸载分节内的 DOM；必须先结算防抖输入，不能等元素消失后再收集。
+    session.flushWriteBack();
     const { sections, collapsed } = foldStateRef.current;
     const section = sections.find(item => item.key === key);
     const willCollapse = !collapsed.has(key);
@@ -1134,6 +1247,10 @@ export function WysiwygEditor() {
       className="wysiwyg-surface"
       ref={surfaceRef}
       spellCheck={settings.editor.spell_check}
+      onWheelCapture={cancelInitialViewRestore}
+      onPointerDownCapture={cancelInitialViewRestore}
+      onTouchStartCapture={cancelInitialViewRestore}
+      onKeyDownCapture={cancelInitialViewRestore}
       onBlur={() => session.flushWriteBack()}
       onClick={(event) => {
         // 块外的留白不是编辑宿主；点击后落到末尾的空段落。
@@ -1237,6 +1354,7 @@ export function WysiwygEditor() {
               onRedoHistory={handleRedoHistory}
               onInlineClick={handleInlineClick}
               onApplyBlockSource={handleApplyBlockSource}
+              onSourceDraftChange={handleSourceDraftChange}
               onEndSourceEditing={handleEndSourceEditing}
               onDeleteBlock={handleDeleteBlock}
               onInsertAfter={handleInsertAfter}

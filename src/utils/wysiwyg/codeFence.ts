@@ -58,9 +58,11 @@ export function extractFenceCode(source: string): string {
   const parts = parseFence(source);
   if (!parts) return source;
   const { indent, lines } = parts;
-  const stripped = indent.length > 0
-    ? lines.map(line => line.startsWith(indent) ? line.slice(indent.length) : line.replace(/^[ \t]{1,2}/, ''))
-    : lines;
+  const stripped = lines.map(line => {
+    let offset = 0;
+    while (offset < indent.length && line[offset] === indent[offset]) offset += 1;
+    return line.slice(offset);
+  });
   return stripped.join('\n');
 }
 

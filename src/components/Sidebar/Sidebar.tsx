@@ -32,6 +32,9 @@ import { useTabClose } from '../../hooks/useTabClose';
 import { PinnedSection } from '../Library/PinnedSection';
 import { useLibraryStore } from '../../stores/libraryStore';
 import { togglePinPath } from '../../services/libraryActions';
+import { ReviewPanel } from '../Review/ReviewPanel.tsx';
+import { LocalHistoryPanel } from './LocalHistoryPanel.tsx';
+const KnowledgePanel = lazy(() => import('../Knowledge/KnowledgePanel').then(m => ({ default: m.KnowledgePanel })));
 
 const UnsavedChangesDialog = lazy(() => import('../UnsavedChangesDialog/UnsavedChangesDialog').then(m => ({ default: m.UnsavedChangesDialog })));
 const RecycleDialog = lazy(() => import('../Recycle/RecycleDialog').then(m => ({ default: m.RecycleDialog })));
@@ -52,7 +55,7 @@ interface RawFileNode {
 
 interface SidebarProps {
   style?: React.CSSProperties;
-  view?: 'explorer' | 'search';
+  view?: 'explorer' | 'search' | 'review' | 'history' | 'knowledge';
 }
 
 type ContextMenuState = { x: number; y: number; node: FileNode; targetType: 'file' | 'folder' | 'root' } | null;
@@ -163,7 +166,11 @@ function FileIcon({ filename }: { filename: string }) {
 }
 
 export function Sidebar({ style, view = 'explorer' }: SidebarProps) {
-  return view === 'search' ? <DocumentSearchPanel style={style} /> : <ExplorerSidebar style={style} />;
+  return view === 'search' ? <DocumentSearchPanel style={style} />
+    : view === 'review' ? <ReviewPanel style={style} />
+      : view === 'history' ? <LocalHistoryPanel style={style} />
+        : view === 'knowledge' ? <Suspense fallback={<div className="sidebar loading-panel">正在加载知识管理…</div>}><KnowledgePanel style={style} onOpenDocument={path => { void useAppStore.getState().openFile(path); }} /></Suspense>
+          : <ExplorerSidebar style={style} />;
 }
 
 function ExplorerSidebar({ style }: SidebarProps) {

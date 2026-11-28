@@ -5,8 +5,23 @@ import {
   findSlashCommandTrigger,
   resolveSlashSelection,
   SLASH_COMMANDS,
+  createPluginSlashCommands,
 } from '../src/utils/slashCommands.ts';
+import type { SlashCommand } from '../src/utils/slashCommands.ts';
 import { slashAiGenie } from '../src/utils/aiGenies.ts';
+
+test('filters optional plugin slash commands together with built-ins', () => {
+  const extra: SlashCommand[] = [{ id: 'plugin-sign', title: '插件签名', description: '安全插件', shortcut: '/sign', icon: 'P', keywords: 'sign 签名', insertion: { text: '——作者' } }];
+  assert.deepEqual(filterSlashCommands('sign', extra).map(command => command.id), ['plugin-sign']);
+  assert.equal(filterSlashCommands('h2', extra).some(command => command.id === 'plugin-sign'), false);
+});
+
+test('插件斜杠贡献转换为带命名空间的编辑器命令', () => {
+  const commands = createPluginSlashCommands([{ pluginId: 'demo', id: 'sign', title: '签名', insert: '——作者' }]);
+  assert.equal(commands[0].id, 'plugin:demo:sign');
+  assert.equal(commands[0].insertion.text, '——作者');
+  assert.equal(commands[0].shortcut, '/sign');
+});
 
 test('opens slash commands for the first token on a line', () => {
   assert.deepEqual(findSlashCommandTrigger('/h2', 20, 23), {

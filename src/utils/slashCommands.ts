@@ -43,6 +43,19 @@ const insertion = (
   selectionEnd = selectionStart,
 ): SlashCommandInsertion => ({ text, selectionStart, selectionEnd });
 
+export function createPluginSlashCommands(items: readonly { pluginId: string; id: string; title: string; insert: string }[]): SlashCommand[] {
+  return items.map(item => ({
+    id: `plugin:${item.pluginId}:${item.id}`,
+    title: item.title,
+    description: `安全插件：${item.pluginId}`,
+    shortcut: `/${item.id}`,
+    icon: 'P',
+    keywords: `${item.id} ${item.title} plugin ${item.pluginId}`,
+    insertion: insertion(item.insert),
+    dividerBefore: true,
+  }));
+}
+
 export const SLASH_COMMANDS: SlashCommand[] = [
   // 仅 AI 问答置于菜单顶部，其余 AI 动作分组放到底部。
   { id: 'ai-ask', title: 'AI 问答', description: '向 AI 提问并插入回答', shortcut: '/ask', icon: '问', keywords: 'ai ask question 问答 提问 查询 搜索 智能', insertion: insertion(''), ai: 'ask', needsPrompt: true },
@@ -118,11 +131,12 @@ function slashMatchRank(command: SlashCommand, normalized: string): number {
   return 3;
 }
 
-export function filterSlashCommands(query: string) {
+export function filterSlashCommands(query: string, extraCommands: readonly SlashCommand[] = []) {
   const normalized = query.trim().toLocaleLowerCase();
-  if (!normalized) return SLASH_COMMANDS;
+  const commands = [...SLASH_COMMANDS, ...extraCommands];
+  if (!normalized) return commands;
 
-  const matches = SLASH_COMMANDS.filter((command) => {
+  const matches = commands.filter((command) => {
     const searchable = `${command.title} ${command.description} ${command.shortcut.slice(1)} ${command.keywords}`.toLocaleLowerCase();
     return searchable.includes(normalized);
   });

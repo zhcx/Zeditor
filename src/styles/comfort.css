@@ -1,16 +1,4 @@
-/* 清晰舒适的工作台：基于现有主题变量统一密度、可读性与交互状态。 */
-:root {
-  --ui-font-size-xs: 11px;
-  --ui-font-size-sm: 12px;
-  --ui-font-size-md: 13px;
-  --ui-titlebar-height: 40px;
-  --ui-activitybar-width: 54px;
-  --ui-sidebar-header-height: 44px;
-  --ui-tab-height: 40px;
-  --ui-statusbar-height: 30px;
-  --ui-tree-row-height: 22px;
-  --ui-control-height-md: 30px;
-}
+/* 清晰舒适的工作台：基于统一语义 Token 微调密度与交互状态。 */
 
 /* 当前文档既是定位线索，也是可搜索的切换入口。 */
 .titlebar .menu-trigger { height: 30px; padding-inline: 9px; }
@@ -46,12 +34,12 @@
 .titlebar-document-dirty { width: 5px; height: 5px; border-radius: 50%; background: var(--accent-color); flex-shrink: 0; }
 
 /* 导航按钮独立成组，留出更舒适的鼠标命中空间。 */
-.activity-bar { padding-block: 8px; }
-.activity-bar-main, .activity-bar-bottom { align-items: center; gap: 5px; }
-.activity-bar-button { width: 38px; height: 40px; border-radius: 8px !important; }
-.activity-bar-button svg { width: 21px; height: 21px; }
-.activity-bar-button.active { background: var(--accent-soft); color: var(--accent-color); }
-.activity-bar-button.active::before { left: -8px; height: 18px; border-radius: 0 3px 3px 0; }
+.activity-bar { padding-block: 6px; }
+.activity-bar-main, .activity-bar-bottom { align-items: center; gap: 4px; }
+.activity-bar-button { width: 40px; height: 38px; border-radius: 7px !important; }
+.activity-bar-button svg { width: 20px; height: 20px; }
+.activity-bar-button.active { background: var(--accent-soft); color: var(--accent-text); }
+.activity-bar-button.active::before { left: -4px; height: 18px; border-radius: 0 3px 3px 0; background: var(--accent-color); }
 .activity-immersive-picker { display: flex; justify-content: center; width: 100%; }
 
 /* 文件层次依靠留白与选中底色表达，避免每个分组都画重边框。 */
@@ -133,6 +121,7 @@
 .statusbar .status-item { min-height: 24px; border-radius: 5px; padding-inline: 6px; color: var(--text-secondary); }
 .statusbar .status-item:not(button):not(.clickable):hover { background: transparent; }
 .statusbar .status-save-state { gap: 6px; }
+.statusbar .status-cursor { min-width: 58px; justify-content: center; font-variant-numeric: tabular-nums; }
 .status-save-dot { width: 5px; height: 5px; flex-shrink: 0; border-radius: 50%; background: var(--success-color); }
 .status-save-state[data-state="modified"] .status-save-dot { background: var(--warning-color); }
 .status-save-state[data-state="conflict"] .status-save-dot { background: var(--error-color, #d9534f); }
@@ -164,8 +153,77 @@
   .preview-pane-actions { padding-inline: 12px; }
 }
 @media (max-width: 760px) {
-  .titlebar .titlebar-command-center { width: min(40vw, 240px); min-width: 80px; }
+  .titlebar .titlebar-command-center { width: min(42vw, 220px); min-width: 120px; }
   .titlebar-drag-spacer { padding-inline: 8px; }
   .preview-pane-actions > span { font-size: 11px; }
   .statusbar .status-companion-value { display: none; }
+  .statusbar .status-cursor { display: none; }
+}
+
+/* Final workbench polish: quiet chrome, clear focus and one visual rhythm. */
+.titlebar .titlebar-command-center { box-shadow: 0 1px 2px color-mix(in srgb, var(--text-primary) 6%, transparent); }
+.titlebar .titlebar-command-center:hover { box-shadow: 0 1px 3px color-mix(in srgb, var(--text-primary) 9%, transparent); }
+.titlebar .titlebar-command-center.titlebar-command-center-open {
+  border-color: var(--accent-color);
+  box-shadow: 0 0 0 3px var(--accent-soft);
+}
+.titlebar-command-center kbd {
+  min-width: 30px;
+  padding: 2px 5px;
+  border: 1px solid var(--border-soft);
+  border-radius: 5px;
+  background: color-mix(in srgb, var(--bg-elevated) 72%, transparent);
+  text-align: center;
+}
+
+.activity-bar-button { position: relative; transition: color var(--transition), background var(--transition); }
+.activity-bar-button.active::before { box-shadow: 0 0 0 1px color-mix(in srgb, var(--accent-color) 12%, transparent); }
+.activity-bar-button:active { transform: translateY(1px); }
+
+.app .panel-divider.panel-divider:focus-visible::after {
+  width: 2px;
+  background: var(--accent-color);
+  box-shadow: 0 0 0 3px var(--accent-soft);
+}
+.chatbot-composer-resize-handle:focus-visible { outline: 2px solid var(--ui-accent); outline-offset: 2px; border-radius: var(--ui-radius-sm); }
+
+.document-pane-tabs .tab { transition: color var(--transition), background var(--transition), box-shadow var(--transition); }
+.document-pane-tabs .tab.active { border-bottom-color: var(--bg-document); }
+.document-pane-tabs .tab:focus-visible { outline-offset: -3px; }
+
+.statusbar { box-shadow: 0 -1px 0 color-mix(in srgb, var(--border-soft) 45%, transparent); }
+.statusbar .status-save-state { color: var(--text-color); font-weight: 550; }
+.statusbar .status-item { border-radius: 5px; }
+.statusbar .status-button:hover,
+.statusbar .status-button.active { background: var(--bg-hover); color: var(--text-color); }
+.statusbar .status-view-state { color: var(--text-color); }
+.statusbar .status-view-state[data-view-state="wysiwyg"] { color: var(--accent-color); }
+.status-ai-menu { animation: status-menu-in 120ms var(--ui-easing-standard); }
+@keyframes status-menu-in { from { opacity: 0; transform: translateY(4px); } }
+
+/* Settings navigation must remain reachable on short windows and narrow screens. */
+.settings-navigation .settings-tabs {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding-bottom: 8px;
+  scrollbar-width: thin;
+}
+.settings-navigation .settings-tabs .tab-btn { flex: 0 0 auto; }
+.settings-navigation .settings-tabs .tab-btn.active { box-shadow: inset 2px 0 0 var(--accent-color); }
+.settings-main .settings-header { background: color-mix(in srgb, var(--bg-elevated) 32%, transparent); }
+.settings-main .settings-section { gap: 0; }
+.settings-main .setting-item { min-height: 68px; padding: 14px 0; border: 0; border-bottom: 1px solid var(--ui-border-subtle); border-radius: 0; background: transparent; }
+.settings-main .setting-item:hover { background: transparent; }
+.settings-main .setting-item > label:first-child { line-height: 1.45; }
+.settings-main .setting-item small { line-height: 1.55; }
+
+@media (max-width: 760px) {
+  .settings-navigation .settings-tabs .tab-btn.active { box-shadow: inset 2px 0 0 var(--accent-color); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .status-ai-menu { animation: none; }
+  .activity-bar-button:active { transform: none; }
 }

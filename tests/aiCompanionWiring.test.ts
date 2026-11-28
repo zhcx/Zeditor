@@ -30,7 +30,7 @@ test('WYSIWYG editor also listens to native input/beforeinput events for WKWebVi
   assert.match(editor, /event\.composedPath\(\)/);
   assert.match(editor, /addEventListener\('input', onNativeInput, true\)/);
   assert.match(editor, /addEventListener\('compositionend', onNativeInput, true\)/);
-  assert.match(editor, /const index = blockIndexFromEvent\(event\.nativeEvent\);\s*\n\s*if \(index !== null\) scheduleCompanion\(index\);/);
+  assert.match(editor, /const handleSurfaceBeforeInput = useCallback[\s\S]*?if \(index !== null\) session\.beginInput\(index\);[\s\S]*?if \(index !== null\) scheduleCompanion\(index\);/);
 });
 
 test('Agent mode migrates automatic companion on unless the user explicitly turned it off', async () => {

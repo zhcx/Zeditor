@@ -164,15 +164,30 @@ async function executeMethod(method: string, params: Record<string, unknown>): P
       const { app } = requireActiveTab();
       const view = app.editorView;
       if (!view) throw mcpError('NO_EDITOR', '编辑器未就绪');
+      view.flushPendingEdits?.();
+      const latest = useAppStore.getState();
       const content = String(params.content ?? '');
-      const revision = computeDocumentRevision(app.content);
+      const revision = computeDocumentRevision(latest.content);
       const expected = params.expected_revision ? String(params.expected_revision) : null;
       if (expected && expected !== revision) {
         throw mcpError('STALE', 'Document has changed since the last read', { current_revision: revision });
       }
-      const selection = view.state.selection.main;
-      view.replaceRange(selection.from, selection.to, content);
-      return { revision: computeDocumentRevision(useAppStore.getState().content), replaced_chars: selection.to - selection.from };
+      const selection = view.getSelection();
+      if (app.settings.mcp.auto_approve) {
+        view.replaceRange(selection.from, selection.to, content);
+        return { revision: computeDocumentRevision(useAppStore.getState().content), replaced_chars: selection.to - selection.from, applied: 'applied' };
+      }
+      const ai = useAIStore.getState();
+      if (ai.editMode === 'ask') throw mcpError('READ_ONLY', '当前为询问模式，不允许修改文档');
+      ai.proposeEdit({
+        kind: 'polish',
+        reason: 'MCP selection_set：AI 助手请求修改当前选区，请审阅后接受或拒绝。',
+        before: latest.content.slice(selection.from, selection.to),
+        after: content,
+        from: selection.from,
+        to: selection.to,
+      });
+      return { revision, replaced_chars: selection.to - selection.from, applied: 'pending_review' };
     }
     default:
       throw mcpError('UNKNOWN_METHOD', `未知方法：${method}`);

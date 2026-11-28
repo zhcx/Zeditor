@@ -25,6 +25,15 @@ test('an explicit mode change follows the current caret and is consumed once', (
   assert.equal(memory.peek('a', 'wysiwyg')?.followCaret, false);
 });
 
+test('user interaction can discard a pending cross-surface restore', () => {
+  const memory = createEditorViewMemory();
+  memory.capture('a', 'wysiwyg', { from: 10, to: 10, scrollTop: 200 });
+  memory.capture('a', 'source', { from: 70, to: 73, scrollTop: 900 });
+  memory.follow('a', 'source', 'wysiwyg');
+  memory.discardPending('a', 'wysiwyg');
+  assert.deepEqual(memory.peek('a', 'wysiwyg'), { from: 10, to: 10, scrollTop: 200, followCaret: false });
+});
+
 test('a first visit to another surface follows the last known caret', () => {
   const memory = createEditorViewMemory();
   memory.capture('a', 'wysiwyg', { from: 15, to: 18, scrollTop: 400 });

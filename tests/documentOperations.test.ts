@@ -59,6 +59,12 @@ test('打开非 UTF-8 文档时记住编码，保存继续使用相同编码', a
   assert.equal(calls.find(call => call.command === 'save_file_content_checked')?.args.encoding, 'gbk');
 });
 
+test('save as records the original path so history is not migrated', async () => {
+  const id = useAppStore.getState().addTab({ title: 'old.md', path: 'C:/old.md', content: '内容', modified: true });
+  await useAppStore.getState().saveTab(id, 'C:/copy.md');
+  assert.equal(useAppStore.getState().tabs.find(tab => tab.id === id)?.saveAsFromPath, 'C:/old.md');
+});
+
 test('stale checked saves keep both versions and do not enqueue cloud backup', async () => {
   const original = { size: 8, sha256: 'original' };
   const external = { size: 8, sha256: 'external' };

@@ -10,6 +10,8 @@
 // 编辑器画布细节（背景/前景/行号/当前行/选区/光标/括号匹配/缩进线/查找高亮等）
 // 由 vars 派生注入 Monaco 主题（见 ./monaco.ts），预览代码块经 --code-* 变量自动跟随。
 
+import { accessibleSolidColor, accessibleTextColor, readableForeground } from './colorTokens.ts';
+
 export type ThemeMode = 'light' | 'dark';
 
 export interface ThemeSyntax {
@@ -68,78 +70,80 @@ export const SYSTEM_THEME = 'system';
 
 const lightBase: Record<string, string> = {
   'bg-app': '#f7f8fa',
-  'bg-shell': '#edeef1',
-  'bg-panel': '#f2f3f5',
+  'bg-shell': '#eef1f5',
+  'bg-panel': '#eef1f5',
   'bg-document': '#ffffff',
   'bg-elevated': '#ffffff',
-  'bg-tertiary': '#e9ebef',
+  'bg-tertiary': '#e7ebf1',
   'surface-raised': '#ffffff',
-  'surface-subtle': '#f4f5f7',
-  'surface-muted': '#e9edf1',
-  'text-color': '#2e3640',
-  'text-primary': '#222a35',
-  'text-secondary': '#5b6572',
-  'text-muted': '#656b76',
-  'border': '#dce0e6',
-  'border-soft': 'rgba(34, 42, 53, .06)',
-  'border-strong': 'rgba(34, 42, 53, .15)',
-  'hover': 'rgba(34, 42, 53, .045)',
-  'active': 'rgba(34, 42, 53, .08)',
-  'selected': 'rgba(45, 106, 224, .10)',
-  'accent-color': '#2d6ae0',
-  'accent-hover': '#2457bd',
-  'accent-soft': 'rgba(45, 106, 224, .12)',
-  'success-color': '#2f9463',
-  'warning-color': '#b07708',
-  'danger-color': '#d0545f',
-  'toolbar-bg': '#f2f3f5',
-  'menubar-bg': '#edeef1',
-  'tab-bg': '#edeef1',
+  'surface-subtle': '#f4f6f9',
+  'surface-muted': '#e9edf3',
+  'text-color': '#202938',
+  'text-primary': '#202938',
+  'text-secondary': '#667085',
+  'text-muted': '#98a2b3',
+  'border': '#e2e6ed',
+  'border-soft': 'rgba(32, 41, 56, .06)',
+  'border-strong': 'rgba(32, 41, 56, .15)',
+  'hover': 'rgba(32, 41, 56, .045)',
+  'active': 'rgba(32, 41, 56, .08)',
+  'selected': 'rgba(53, 106, 230, .12)',
+  'brand-color': '#173e7a',
+  'accent-color': '#356ae6',
+  'accent-hover': '#2858c7',
+  'accent-soft': 'rgba(53, 106, 230, .12)',
+  'success-color': '#249b68',
+  'warning-color': '#d99a24',
+  'danger-color': '#d94b55',
+  'toolbar-bg': '#eef1f5',
+  'menubar-bg': '#eef1f5',
+  'tab-bg': '#eef1f5',
   'tab-active-bg': '#ffffff',
-  'statusbar-bg': '#edeef1',
+  'statusbar-bg': '#eef1f5',
   'code-bg': '#f1f3f6',
-  'code-text': '#3d4652',
-  'code-title': '#3868d2',
-  'overlay-bg': 'rgba(25, 32, 42, .28)',
-  'font-reading': '-apple-system, BlinkMacSystemFont, "Segoe UI", "Microsoft YaHei", sans-serif',
+  'code-text': '#344054',
+  'code-title': '#356ae6',
+  'overlay-bg': 'rgba(23, 32, 48, .28)',
+  'font-reading': '"Noto Serif SC", "Source Han Serif SC", "Songti SC", Georgia, serif',
 };
 
 const darkBase: Record<string, string> = {
-  'bg-app': '#21242b',
-  'bg-shell': '#1b1e25',
-  'bg-panel': '#252932',
-  'bg-document': '#2a2f38',
-  'bg-elevated': '#313741',
-  'bg-tertiary': '#313741',
-  'surface-raised': '#313741',
-  'surface-subtle': '#2b3039',
-  'surface-muted': '#384049',
-  'text-color': '#ced5de',
-  'text-primary': '#e9edf2',
-  'text-secondary': '#a3adba',
-  'text-muted': '#9aa2ac',
-  'border': '#363c45',
-  'border-soft': 'rgba(206, 213, 222, .08)',
-  'border-strong': 'rgba(206, 213, 222, .16)',
-  'hover': 'rgba(206, 213, 222, .06)',
-  'active': 'rgba(206, 213, 222, .10)',
-  'selected': 'rgba(88, 166, 255, .18)',
-  'accent-color': '#58a6ff',
-  'accent-hover': '#7ab5ff',
-  'accent-soft': 'rgba(88, 166, 255, .15)',
-  'success-color': '#3fb950',
-  'warning-color': '#d29922',
-  'danger-color': '#f47067',
-  'toolbar-bg': '#252932',
-  'menubar-bg': '#1b1e25',
-  'tab-bg': '#1b1e25',
-  'tab-active-bg': '#2a2f38',
-  'statusbar-bg': '#1b1e25',
-  'code-bg': '#242932',
-  'code-text': '#ced5de',
-  'code-title': '#d2a8ff',
+  'bg-app': '#171b22',
+  'bg-shell': '#1d232d',
+  'bg-panel': '#1d232d',
+  'bg-document': '#202733',
+  'bg-elevated': '#27303d',
+  'bg-tertiary': '#27303d',
+  'surface-raised': '#27303d',
+  'surface-subtle': '#1c222c',
+  'surface-muted': '#303947',
+  'text-color': '#e6ebf2',
+  'text-primary': '#e6ebf2',
+  'text-secondary': '#a0aaba',
+  'text-muted': '#7f8a9e',
+  'border': '#303947',
+  'border-soft': 'rgba(230, 235, 242, .08)',
+  'border-strong': 'rgba(230, 235, 242, .16)',
+  'hover': 'rgba(230, 235, 242, .06)',
+  'active': 'rgba(230, 235, 242, .10)',
+  'selected': 'rgba(110, 168, 254, .18)',
+  'brand-color': '#6ea8fe',
+  'accent-color': '#6ea8fe',
+  'accent-hover': '#8bbaff',
+  'accent-soft': 'rgba(110, 168, 254, .15)',
+  'success-color': '#3fb982',
+  'warning-color': '#e5ae55',
+  'danger-color': '#f07178',
+  'toolbar-bg': '#1d232d',
+  'menubar-bg': '#1d232d',
+  'tab-bg': '#1d232d',
+  'tab-active-bg': '#202733',
+  'statusbar-bg': '#1d232d',
+  'code-bg': '#1b222c',
+  'code-text': '#d7deea',
+  'code-title': '#8bbaff',
   'overlay-bg': 'rgba(8, 12, 17, .55)',
-  'font-reading': '-apple-system, BlinkMacSystemFont, "Segoe UI", "Microsoft YaHei", sans-serif',
+  'font-reading': '"Noto Serif SC", "Source Han Serif SC", "Songti SC", Georgia, serif',
 };
 
 /** syntax token → 预览代码块对应的 CSS 变量（键不带 `--`）。 */
@@ -173,6 +177,20 @@ function defineTheme(
   for (const [token, varKey] of Object.entries(SYNTAX_TO_CODE_VAR)) {
     merged[varKey] = syntax[token as keyof ThemeSyntax];
   }
+  const accent = merged['accent-color'];
+  const surface = merged['bg-document'];
+  merged['accent-solid'] = accessibleSolidColor(accent);
+  merged['accent-solid-hover'] = accessibleSolidColor(merged['accent-hover']);
+  merged['on-accent'] = readableForeground(merged['accent-solid']);
+  merged['on-success'] = readableForeground(merged['success-color']);
+  merged['on-warning'] = readableForeground(merged['warning-color']);
+  merged['on-danger'] = readableForeground(merged['danger-color']);
+  merged['accent-text'] = accessibleTextColor(accent, surface, mode);
+  merged['secondary-text'] = accessibleTextColor(merged['text-secondary'], merged['bg-panel'], mode);
+  merged['muted-text'] = accessibleTextColor(merged['text-muted'], merged['bg-panel'], mode);
+  merged['success-text'] = accessibleTextColor(merged['success-color'], surface, mode);
+  merged['warning-text'] = accessibleTextColor(merged['warning-color'], surface, mode);
+  merged['danger-text'] = accessibleTextColor(merged['danger-color'], surface, mode);
   return {
     id,
     label,

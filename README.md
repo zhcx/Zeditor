@@ -135,7 +135,7 @@ Zeditor 支持将 **DOC、DOCX、PPT、PPTX、XLS、XLSX、ODF、RTF、EPUB、CS
 - **附件上传** — 图片和文本文件上传，与对话一起发送
 - **本地 Agent（Beta）** — 在同一面板调用 Claude Code、Codex、OpenCode 或 Pi，支持流式任务、命令审批和会话恢复
 - **隔离变更审阅** — Git 仓库任务在临时 worktree 中工作，完成后可按文件应用，不覆盖当前未提交修改
-- **MCP 集成** — 让 Claude Desktop / Claude Code / Codex CLI / Gemini CLI 等 AI 助手通过 MCP 协议直接读写你正在编辑的文档，详见 [MCP 集成使用指南](docs/mcp-support.md)
+- **MCP 集成** — 让 Claude Desktop / Claude Code / Codex CLI / Gemini CLI / Pi Agent / DeepSeek Harness / WorkBuddy / Qoder 等 AI 助手通过 MCP 协议直接读写你正在编辑的文档，详见 [MCP 集成完整指南](docs/mcp-support.md)
 
 ### 🤖 AI 服务商支持
 
@@ -242,13 +242,13 @@ npm run tauri build
 
 ### MCP 集成使用指南（v0.5.5 新增）
 
-Zeditor 内置 MCP 服务器，让 **Claude Desktop、Claude Code、Codex CLI、Gemini CLI** 等 AI 助手直接读写你正在编辑的文档。
+Zeditor 内置 MCP 服务器，让 **Claude Desktop、Claude Code、Codex CLI、Gemini CLI、Pi Agent、DeepSeek Harness、WorkBuddy、Qoder / Qoder CN** 等 AI 助手直接读写你正在编辑的文档，也支持通用 MCP Harness。
 
 **三步启用：**
 
 1. 打开 **设置 → 集成**，开启「启用 MCP 服务器」（可同时开启「启动时自动运行」）。
-2. 在「AI 助手配置」中，对你使用的客户端点击一键安装，状态显示 **✓ 已安装** 即成功。
-3. **完全退出并重启该 AI 助手**，之后即可让助手读取 / 修改 Zeditor 中的文档。
+2. 点击「测试 MCP 连接」，再在「AI 助手配置」中搜索目标客户端并点击「安装」或「复制配置」。
+3. 按客户端要求完全退出重启，或执行 `/reload` / `/mcp reload`，之后即可让助手读取 / 修改 Zeditor 中的文档。
 
 **可选开关：**
 
@@ -263,7 +263,7 @@ Zeditor 内置 MCP 服务器，让 **Claude Desktop、Claude Code、Codex CLI、
 
 **安全边界：** 桥接仅监听 `127.0.0.1` 并需随机令牌；文件操作限定在已打开的工作区根与文档目录内（越界返回 `INVALID_PATH`）；默认不自动落盘，AI 修改以差异审阅提交给你确认。
 
-> 完整的客户端配置路径、手动配置 JSON / TOML 示例、11 个工具清单与故障排查，见 [MCP 集成使用指南](docs/mcp-support.md)。
+> 完整的客户端配置路径、JSON / TOML / YAML 示例、通用 Harness 接入、11 个工具清单与故障排查，见 [MCP 集成完整指南](docs/mcp-support.md)。
 
 ### 文档转换模块使用指南
 

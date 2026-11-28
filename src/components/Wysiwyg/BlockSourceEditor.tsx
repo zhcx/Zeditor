@@ -13,12 +13,33 @@ export interface BlockSourceEditorProps {
   source: string;
   onApply: (source: string) => void;
   onClose: () => void;
+  onDraftChange?: (draft: string | null) => void;
   initialSelection?: { from: number; to: number } | null;
 }
 
-export function BlockSourceEditor({ title, source, onApply, onClose, initialSelection }: BlockSourceEditorProps) {
+export function BlockSourceEditor({ title, source, onApply, onClose, onDraftChange, initialSelection }: BlockSourceEditorProps) {
   const [draft, setDraft] = useState(source);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const draftChangeRef = useRef(onDraftChange);
+  const mountedRef = useRef(true);
+
+  useEffect(() => { draftChangeRef.current = onDraftChange; }, [onDraftChange]);
+
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+      // StrictMode 会同步执行一次“卸载→挂载”模拟；微任务确保只通知真实卸载。
+      queueMicrotask(() => {
+        if (!mountedRef.current) draftChangeRef.current?.(null);
+      });
+    };
+  }, []);
+
+  const updateDraft = (next: string) => {
+    setDraft(next);
+    draftChangeRef.current?.(next);
+  };
 
   useEffect(() => {
     textareaRef.current?.focus();
@@ -40,7 +61,7 @@ export function BlockSourceEditor({ title, source, onApply, onClose, initialSele
         rows={Math.max(6, draft.split('\n').length + 1)}
         spellCheck={false}
         aria-label={title}
-        onChange={(event) => setDraft(event.target.value)}
+        onChange={(event) => updateDraft(event.target.value)}
         onKeyDown={(event) => {
           if (event.key === 'Escape') {
             event.preventDefault();
@@ -51,7 +72,7 @@ export function BlockSourceEditor({ title, source, onApply, onClose, initialSele
           } else if (event.key === 'Tab') {
             event.preventDefault();
             const { selectionStart, selectionEnd } = event.currentTarget;
-            setDraft(draft.slice(0, selectionStart) + '  ' + draft.slice(selectionEnd));
+            updateDraft(draft.slice(0, selectionStart) + '  ' + draft.slice(selectionEnd));
             requestAnimationFrame(() => textareaRef.current?.setSelectionRange(selectionStart + 2, selectionStart + 2));
           }
         }}

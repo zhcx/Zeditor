@@ -48,6 +48,13 @@ it('rebuilds a fence from code and language, preserving style', () => {
   assert.equal(formatFence('```', 'ts'), '````ts\n```\n````');
 });
 
+it('does not strip unmatched indentation from fenced code lines', () => {
+  const source = '  ```text\n  a\n\tb\n   c\n  ```';
+  const code = extractFenceCode(source);
+  assert.equal(code, 'a\n\tb\n c');
+  assert.equal(extractFenceCode(formatFence(code, 'text', { marker: '```', indent: '  ' })), code);
+});
+
 it('keeps the rest of the fence info string when writing back', () => {
   // 回归：编辑代码块时 `title=` / 行高亮等属性曾被丢掉。
   const withTitle = '```js title="示例"\nconst a = 1;\n```';

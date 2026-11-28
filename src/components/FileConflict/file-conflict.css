@@ -1,19 +1,21 @@
-.file-conflict-overlay { position: fixed; z-index: 10030; inset: 0; display: grid; place-items: center; padding: 24px; background: color-mix(in srgb, var(--bg-app, #111318) 60%, transparent); backdrop-filter: blur(8px); }
-.file-conflict-dialog { display: flex; flex-direction: column; width: min(1100px, 100%); max-height: min(800px, calc(100vh - 48px)); overflow: hidden; color: var(--text-primary); background: var(--surface-primary, var(--bg-panel)); border: 1px solid var(--border-primary, var(--border-color)); border-radius: 14px; box-shadow: 0 22px 70px rgb(0 0 0 / 32%); }
-.file-conflict-header { display: flex; justify-content: space-between; gap: 16px; align-items: flex-start; padding: 20px 22px; border-bottom: 1px solid var(--border-primary, var(--border-color)); }
-.file-conflict-header h2 { margin: 0; font-size: 17px; }
-.file-conflict-header p { max-width: 70vw; overflow: hidden; margin: 5px 0 0; color: var(--text-secondary); font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }
-.file-conflict-header button, .file-conflict-actions button { min-height: 34px; padding: 0 12px; color: var(--text-primary); background: var(--surface-secondary, var(--bg-panel)); border: 1px solid var(--border-primary, var(--border-color)); border-radius: 7px; cursor: pointer; }
+.file-conflict-overlay { position: fixed; z-index: var(--ui-z-modal); inset: 0; display: grid; place-items: center; padding: 24px; background: var(--overlay-bg); backdrop-filter: blur(6px); }
+.file-conflict-dialog { display: flex; flex-direction: column; width: min(1100px, 100%); max-height: min(800px, calc(100vh - 48px)); overflow: hidden; color: var(--ui-text-primary); background: var(--ui-bg-overlay); border: 1px solid var(--ui-border-strong); border-radius: var(--ui-radius-lg); box-shadow: var(--ui-shadow-dialog); }
+.file-conflict-header { display: flex; justify-content: space-between; gap: 16px; align-items: flex-start; padding: 20px 22px; border-bottom: 1px solid var(--ui-border-subtle); }
+.file-conflict-header h2 { margin: 0; font-size: 18px; }
+.file-conflict-header p { max-width: 70vw; overflow: hidden; margin: 5px 0 0; color: var(--ui-text-secondary); font-size: var(--ui-font-size-sm); text-overflow: ellipsis; white-space: nowrap; }
+.file-conflict-header button, .file-conflict-actions button { min-height: var(--ui-control-height-md); padding: 0 12px; color: var(--ui-text-primary); background: var(--ui-bg-input); border: 1px solid var(--ui-border-default); border-radius: var(--ui-radius-sm); cursor: pointer; }
 .file-conflict-columns { display: grid; grid-template-columns: 1fr 1fr; gap: 0; min-height: 0; overflow: hidden; }
 .file-conflict-columns section { display: flex; flex-direction: column; min-width: 0; min-height: 250px; overflow: hidden; padding: 16px; }
-.file-conflict-columns section + section { border-left: 1px solid var(--border-primary, var(--border-color)); }
-.file-conflict-columns h3 { margin: 0 0 10px; font-size: 13px; }
-.file-conflict-columns pre { flex: 1; min-height: 220px; overflow: auto; margin: 0; padding: 14px; color: var(--text-primary); background: var(--surface-muted, var(--bg-app)); border-radius: 8px; font: 12px/1.6 var(--font-mono, Consolas, monospace); white-space: pre-wrap; overflow-wrap: anywhere; }
-.file-conflict-deleted { margin: 0; padding: 14px; color: var(--text-secondary); background: var(--surface-muted, var(--bg-app)); border-radius: 8px; font-size: 13px; }
-.file-conflict-error { margin: 0; padding: 8px 20px; color: var(--text-danger, #cf3f3f); font-size: 12px; }
-.file-conflict-actions { display: flex; flex-wrap: wrap; gap: 9px; align-items: center; padding: 13px 18px; border-top: 1px solid var(--border-primary, var(--border-color)); }
+.file-conflict-columns section + section { border-left: 1px solid var(--ui-border-subtle); }
+.file-conflict-columns h3 { margin: 0 0 10px; font-size: var(--ui-font-size-md); }
+.file-conflict-columns pre { flex: 1; min-height: 220px; overflow: auto; margin: 0; padding: 14px; color: var(--ui-text-primary); background: var(--ui-bg-code); border: 1px solid var(--ui-border-subtle); border-radius: var(--ui-radius-md); font: var(--ui-font-size-sm)/1.6 var(--ui-font-mono); white-space: pre-wrap; overflow-wrap: anywhere; }
+.file-conflict-deleted { margin: 0; padding: 14px; color: var(--ui-text-secondary); background: var(--ui-bg-code); border-radius: var(--ui-radius-md); font-size: var(--ui-font-size-md); }
+.file-conflict-error { margin: 0; padding: 8px 20px; color: var(--ui-error-text); font-size: var(--ui-font-size-sm); }
+.file-conflict-actions { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; padding: 13px 18px; border-top: 1px solid var(--ui-border-subtle); }
 .file-conflict-spacer { flex: 1; }
-.file-conflict-actions button:hover, .file-conflict-header button:hover { background: var(--surface-hover, var(--surface-muted)); }
-.file-conflict-actions .file-conflict-overwrite { color: #fff; background: #b73939; border-color: transparent; }
+.file-conflict-actions button:hover, .file-conflict-header button:hover { background: var(--ui-bg-hover); }
+.file-conflict-actions .file-conflict-overwrite { color: var(--ui-text-on-danger); background: var(--ui-error); border-color: transparent; }
+.file-conflict-actions .file-conflict-overwrite:hover:not(:disabled) { background: color-mix(in srgb, var(--ui-error) 88%, var(--ui-text-primary)); }
 .file-conflict-actions .file-conflict-overwrite:disabled { opacity: .6; cursor: progress; }
-@media (max-width: 700px) { .file-conflict-overlay { padding: 12px; } .file-conflict-dialog { max-height: calc(100vh - 24px); } .file-conflict-columns { grid-template-columns: 1fr; grid-template-rows: 1fr 1fr; overflow: auto; } .file-conflict-columns section + section { border-top: 1px solid var(--border-primary, var(--border-color)); border-left: 0; } }
+.file-conflict-actions button:focus-visible, .file-conflict-header button:focus-visible { outline: 2px solid var(--ui-accent); outline-offset: 2px; }
+@media (max-width: 700px) { .file-conflict-overlay { padding: 12px; } .file-conflict-dialog { max-height: calc(100vh - 24px); } .file-conflict-columns { grid-template-columns: 1fr; grid-template-rows: 1fr 1fr; overflow: auto; } .file-conflict-columns section + section { border-top: 1px solid var(--ui-border-subtle); border-left: 0; } }

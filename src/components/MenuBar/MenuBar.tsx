@@ -27,14 +27,15 @@ import { copyActiveAsRichText } from '../../services/libraryActions';
 import appPackage from '../../../package.json';
 import changelog from '../../../CHANGELOG.md?raw';
 import { getReleaseNotes } from '../../utils/releaseNotes';
+import { getFocusedSecondaryEditor } from '../../services/editorFocus';
 
 const currentReleaseNotes = getReleaseNotes(changelog, appPackage.version) ?? '暂无本版本更新说明。';
 
 function runHistoryCommand(action: 'undo' | 'redo') {
   const active = document.activeElement;
   const otherInput = active instanceof HTMLElement && active.matches('input, textarea, [contenteditable="true"]')
-    && !active.closest('.editor-workspace-pane, .wysiwyg-workspace-pane, .zen-editor-pane');
-  const editor = useAppStore.getState().editorView;
+    && !active.closest('.editor-workspace-pane, .wysiwyg-workspace-pane, .zen-editor-pane, .secondary-editor-host');
+  const editor = getFocusedSecondaryEditor() ?? useAppStore.getState().editorView;
   if (otherInput || !editor) document.execCommand(action);
   else { editor[action](); editor.focus(); }
 }
@@ -484,9 +485,8 @@ export function MenuBar() {
     addTab,
     openFile,
     convertDocument,
-    saveTab,
-    getActiveTab
-  } = useAppStore(useShallow(state => ({ activeTabId: state.activeTabId, settings: state.settings, setSettings: state.setSettings, setSettingsOpen: state.setSettingsOpen, addTab: state.addTab, openFile: state.openFile, convertDocument: state.convertDocument, saveTab: state.saveTab, getActiveTab: state.getActiveTab })));
+    saveTab
+  } = useAppStore(useShallow(state => ({ activeTabId: state.activeTabId, settings: state.settings, setSettings: state.setSettings, setSettingsOpen: state.setSettingsOpen, addTab: state.addTab, openFile: state.openFile, convertDocument: state.convertDocument, saveTab: state.saveTab })));
   const mode = useAppStore((state) => state.mode);
   // 主题偏好解析与 themes/apply 的 resolveThemePreference 同规则，用于菜单当前态勾选。
   const resolvedTheme = resolveThemePreference(settings.appearance.theme);
@@ -626,8 +626,14 @@ export function MenuBar() {
     setMenuOpen(false);
   };
 
+  const getCommandTab = () => {
+    const state = useAppStore.getState();
+    return state.tabs.find(tab => tab.id === getFocusedSecondaryEditor()?.tabId)
+      ?? state.tabs.find(tab => tab.id === state.activeTabId);
+  };
+
   const handleSaveFile = async () => {
-    const tab = getActiveTab();
+    const tab = getCommandTab();
     if (tab?.path) {
       try {
         await saveTab(tab.id, tab.path);
@@ -641,8 +647,9 @@ export function MenuBar() {
   };
 
   const handleSaveAs = async () => {
+    getFocusedSecondaryEditor()?.flushPendingEdits?.();
     useAppStore.getState().editorView?.flushPendingEdits?.();
-    const targetTab = getActiveTab();
+    const targetTab = getCommandTab();
     if (!targetTab) return;
     try {
       const baseName = targetTab.path ? '' : resolveSaveBaseName(targetTab.title, targetTab.content);
@@ -719,16 +726,25 @@ export function MenuBar() {
   // 用于判断向下弹出是否会超出视口底部。
   const estimateSubmenuHeight = (itemCount: number) => itemCount * 34 + 24;
 
-  // 鼠标进入子菜单触发行时测量视口：下方放不下且上方足够时，
-  // 给子菜单加 submenu-up 类改为向上弹出（如「视图 → 主题」共 12 项）。
+  // 主菜单可滚动后，子菜单使用 fixed 坐标脱离滚动容器，避免被裁剪。
   const handleSubmenuEnter = (wrapper: HTMLDivElement, itemCount: number) => {
     const dropdown = wrapper.querySelector<HTMLElement>('.submenu-dropdown');
     if (!dropdown) return;
     const rect = wrapper.getBoundingClientRect();
-    const height = estimateSubmenuHeight(itemCount);
-    const overflowBelow = rect.bottom + height - 8 > window.innerHeight;
-    const fitsAbove = rect.bottom + 8 >= height;
-    dropdown.classList.toggle('submenu-up', overflowBelow && fitsAbove);
+    const height = Math.min(estimateSubmenuHeight(itemCount), window.innerHeight - 16);
+    const width = 224;
+    const overflowBelow = rect.bottom + height + 8 > window.innerHeight;
+    const top = Math.max(8, Math.min(
+      overflowBelow ? rect.top - height + 8 : rect.top - 8,
+      window.innerHeight - height - 8,
+    ));
+    const left = Math.max(8, Math.min(
+      rect.right + width + 8 > window.innerWidth ? rect.left - width - 2 : rect.right - 2,
+      window.innerWidth - width - 8,
+    ));
+    dropdown.style.left = `${Math.round(left)}px`;
+    dropdown.style.top = `${Math.round(top)}px`;
+    dropdown.style.bottom = 'auto';
   };
 
   const renderMarkdown = (text: string): string => {
@@ -913,29 +929,46 @@ export function MenuBar() {
             { label: t('导出为 Word', language), action: () => handleExport('word') },
           ],
         },
-        { label: t('导出为 HTML', language), action: () => handleExport('html') },
-        { label: t('导出为 PDF...', language), action: () => openExportDialog('pdf') },
       ],
     },
     {
       label: t('功能', language),
       items: [
-        { label: t('撤销', language), action: () => runHistoryCommand('undo'), shortcut: 'Ctrl+Z', macNative: 'skip' },
-        { label: t('重做', language), action: () => runHistoryCommand('redo'), shortcut: 'Ctrl+Y', macNative: 'skip' },
-        { divider: true, label: '' },
-        { label: t('剪切', language), action: () => document.execCommand('cut'), shortcut: 'Ctrl+X', macNative: 'skip' },
-        { label: t('复制', language), action: () => document.execCommand('copy'), shortcut: 'Ctrl+C', macNative: 'skip' },
-        { label: t('粘贴', language), action: () => document.execCommand('paste'), shortcut: 'Ctrl+V', macNative: 'skip' },
-        { divider: true, label: '' },
-        { label: t('插入图片…', language), action: () => requestInsert('image'), shortcut: 'Ctrl+Shift+I' },
-        { label: t('插入表格', language), action: () => requestInsert('table'), shortcut: 'Ctrl+Shift+T' },
-        { label: t('插入思维导图', language), action: () => requestInsert('markmap') },
-        { divider: true, label: '' },
-        { label: t('插入片段…', language), action: () => { setActiveMenu(null); useLibraryStore.getState().setDialog('snippets'); }, shortcut: 'Ctrl+Alt+S' },
-        { label: t('用模板新建…', language), action: () => { setActiveMenu(null); useLibraryStore.getState().setDialog('templates'); }, shortcut: 'Ctrl+Alt+N' },
-        { label: t('复制为富文本', language), action: () => { setActiveMenu(null); void copyActiveAsRichText(); }, shortcut: 'Ctrl+Alt+C' },
-        { label: t('AI 指令面板', language), action: () => { setActiveMenu(null); window.dispatchEvent(new CustomEvent('zeditor-ai-palette')); }, shortcut: 'Ctrl+J' },
-        { label: t('检查链接', language), action: () => { setActiveMenu(null); window.dispatchEvent(new CustomEvent('zeditor-check-links')); }, shortcut: 'Ctrl+Alt+V' },
+        {
+          label: t('编辑', language),
+          children: [
+            { label: t('撤销', language), action: () => runHistoryCommand('undo'), shortcut: 'Ctrl+Z', macNative: 'skip' },
+            { label: t('重做', language), action: () => runHistoryCommand('redo'), shortcut: 'Ctrl+Y', macNative: 'skip' },
+            { divider: true, label: '' },
+            { label: t('剪切', language), action: () => document.execCommand('cut'), shortcut: 'Ctrl+X', macNative: 'skip' },
+            { label: t('复制', language), action: () => document.execCommand('copy'), shortcut: 'Ctrl+C', macNative: 'skip' },
+            { label: t('粘贴', language), action: () => document.execCommand('paste'), shortcut: 'Ctrl+V', macNative: 'skip' },
+            { divider: true, label: '' },
+            { label: t('全选', language), action: () => document.execCommand('selectAll'), shortcut: 'Ctrl+A', macNative: 'skip' },
+          ],
+        },
+        {
+          label: t('插入', language),
+          children: [
+            { label: t('插入图片…', language), action: () => requestInsert('image'), shortcut: 'Ctrl+Shift+I' },
+            { label: t('插入表格', language), action: () => requestInsert('table'), shortcut: 'Ctrl+Shift+T' },
+            { label: t('插入思维导图', language), action: () => requestInsert('markmap') },
+            { divider: true, label: '' },
+            { label: t('插入片段…', language), action: () => { setActiveMenu(null); useLibraryStore.getState().setDialog('snippets'); }, shortcut: 'Ctrl+Alt+S' },
+            { label: t('用模板新建…', language), action: () => { setActiveMenu(null); useLibraryStore.getState().setDialog('templates'); }, shortcut: 'Ctrl+Alt+N' },
+          ],
+        },
+        {
+          label: t('文档与 AI', language),
+          children: [
+            { label: t('复制为富文本', language), action: () => { setActiveMenu(null); void copyActiveAsRichText(); }, shortcut: 'Ctrl+Alt+C' },
+            { label: t('AI 指令面板', language), action: () => { setActiveMenu(null); window.dispatchEvent(new CustomEvent('zeditor-ai-palette')); }, shortcut: 'Ctrl+J' },
+            { label: '添加审阅批注…', action: () => { setActiveMenu(null); window.dispatchEvent(new CustomEvent('zeditor-add-review-note')); } },
+            { label: t('检查链接', language), action: () => { setActiveMenu(null); window.dispatchEvent(new CustomEvent('zeditor-check-links')); }, shortcut: 'Ctrl+Alt+V' },
+            { divider: true, label: '' },
+            { label: '本地版本历史', action: () => { window.dispatchEvent(new CustomEvent('zeditor-open-history')); } },
+          ],
+        },
         {
           label: t('表格操作', language),
           children: [
@@ -953,14 +986,27 @@ export function MenuBar() {
           ],
         },
         { divider: true, label: '' },
-        { label: t('全选', language), action: () => document.execCommand('selectAll'), shortcut: 'Ctrl+A', macNative: 'skip' },
-        { divider: true, label: '' },
-        { label: t('源码对照', language), checked: mode === 'split', action: () => useAppStore.getState().setMode('split') },
-        { label: t('所见即所得', language), checked: mode === 'wysiwyg', shortcut: 'Ctrl+Alt+M', action: () => useAppStore.getState().setMode('wysiwyg') },
-        { label: t('沉浸阅读', language), checked: mode === 'immersive', action: () => useAppStore.getState().setMode('immersive') },
-        { label: t('沉浸写作', language), checked: mode === 'zen', action: () => useAppStore.getState().setMode('zen') },
-        { label: t('演示模式', language), action: () => { window.dispatchEvent(new CustomEvent('zeditor-presentation-request')); } },
-        { label: t('切换全屏', language), shortcut: 'F11', action: () => { void toggleAppFullscreen(); } },
+        {
+          label: t('视图', language),
+          children: [
+            { label: t('源码对照', language), checked: mode === 'split', action: () => useAppStore.getState().setMode('split') },
+            { label: t('所见即所得', language), checked: mode === 'wysiwyg', shortcut: 'Ctrl+Alt+M', action: () => useAppStore.getState().setMode('wysiwyg') },
+            { label: t('沉浸阅读', language), checked: mode === 'immersive', action: () => useAppStore.getState().setMode('immersive') },
+            { label: t('沉浸写作', language), checked: mode === 'zen', action: () => useAppStore.getState().setMode('zen') },
+            { divider: true, label: '' },
+            { label: '双文档分栏', action: () => { window.dispatchEvent(new CustomEvent('zeditor-toggle-split')); } },
+            { label: t('演示模式', language), action: () => { window.dispatchEvent(new CustomEvent('zeditor-presentation-request')); } },
+            { label: t('切换全屏', language), shortcut: 'F11', action: () => { void toggleAppFullscreen(); } },
+          ],
+        },
+        {
+          label: t('知识库', language),
+          children: [
+            { label: '知识管理', shortcut: 'Ctrl+Shift+K', action: () => { window.dispatchEvent(new CustomEvent('zeditor-open-knowledge')); } },
+            { label: '项目 AI 配置', action: () => { useAppStore.getState().setSettingsTab('project_context'); setSettingsOpen(true); } },
+            { label: '安全插件', action: () => { useAppStore.getState().setSettingsTab('extensions'); setSettingsOpen(true); } },
+          ],
+        },
         { divider: true, label: '' },
         {
           label: t('主题', language),
@@ -989,7 +1035,7 @@ export function MenuBar() {
   ];
 
   const fileMenu = menus[1];
-  const exportMenu = fileMenu.items.find((item) => item.children)?.children;
+  const exportMenu = fileMenu.items.find((item) => item.label === t('导出', language))?.children;
   exportMenu?.push({ label: '导出公众号排版 HTML...', action: () => openExportDialog('wechat') });
   exportMenu?.push({ label: '导出为图片...', action: () => openExportDialog('image') });
 
@@ -1175,6 +1221,7 @@ export function MenuBar() {
               </button>
               {menuOpen && activeMenu === menu.label && (
                 <div className="menu-dropdown">
+                  <div className="menu-scroll">
                   {menu.items.filter(item => !shouldHideLegacyExportItem(item)).map((item, index) => (
                     item.divider ? (
                       <div key={index} className="menu-divider" />
@@ -1220,6 +1267,7 @@ export function MenuBar() {
                       </button>
                     )
                   ))}
+                  </div>
                 </div>
               )}
             </div>

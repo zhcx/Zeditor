@@ -18,7 +18,7 @@ const KIND_LABELS: Record<AIChangeKind, string> = {
 };
 
 export function AIDiffConfirmDialog() {
-  const { pendingEdit, editMode, setEditMode, acceptPendingEdit, rejectPendingEdit, undoLastAiRound } = useAIStore(useShallow(state => ({ pendingEdit: state.pendingEdit, editMode: state.editMode, setEditMode: state.setEditMode, acceptPendingEdit: state.acceptPendingEdit, rejectPendingEdit: state.rejectPendingEdit, undoLastAiRound: state.undoLastAiRound })));
+  const { pendingEdit, editMode, setEditMode, acceptPendingEdit, acceptPendingHunk, rejectPendingHunk, rejectPendingEdit, undoLastAiRound } = useAIStore(useShallow(state => ({ pendingEdit: state.pendingEdit, editMode: state.editMode, setEditMode: state.setEditMode, acceptPendingEdit: state.acceptPendingEdit, acceptPendingHunk: state.acceptPendingHunk, rejectPendingHunk: state.rejectPendingHunk, rejectPendingEdit: state.rejectPendingEdit, undoLastAiRound: state.undoLastAiRound })));
 
   if (!pendingEdit) return null;
 
@@ -51,6 +51,22 @@ export function AIDiffConfirmDialog() {
             <h4>修改后</h4>
             <pre>{pendingEdit.after || '（删除此处内容）'}</pre>
           </article>
+        </div>
+
+        <div className="ai-diff-hunks" aria-label="逐项审阅 AI 修改块">
+          {pendingEdit.hunks.map((hunk, index) => (
+            <article className="ai-diff-hunk" key={hunk.id}>
+              <header><strong>修改块 {index + 1}</strong><span>{hunk.before.length} → {hunk.after.length} 字符</span></header>
+              <div className="ai-diff-hunk-lines">
+                <pre className="removed">{hunk.before || '（插入）'}</pre>
+                <pre className="added">{hunk.after || '（删除）'}</pre>
+              </div>
+              <footer>
+                <button onClick={() => rejectPendingHunk(hunk.id)}>拒绝此块</button>
+                <button className="primary" onClick={() => acceptPendingHunk(hunk.id)}>接受此块</button>
+              </footer>
+            </article>
+          ))}
         </div>
 
         <footer className="ai-diff-actions">

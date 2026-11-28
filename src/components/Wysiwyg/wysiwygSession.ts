@@ -328,6 +328,8 @@ export class WysiwygSession {
   private readonly options: WysiwygSessionOptions;
   private writeBackTimer: ReturnType<typeof setTimeout> | null = null;
   private pendingIndex: number | null = null;
+  /** DOM 已变化后无法再取得输入前光标；在 beforeinput / compositionstart 时预先保存。 */
+  private pendingInputCaret: number | null = null;
   private composing = false;
   private skipRenderIndex: number | null = null;
   private version = 0;
@@ -342,6 +344,8 @@ export class WysiwygSession {
   private restoreFocus = true;
   /** 变更通知由外壳在挂载后注入（避免外壳在渲染期读取会话实例）。 */
   private notify: () => void = () => undefined;
+  /** Monotonic source revision for AI/review anchoring; independent of renderRevision. */
+  private contentRevision = 0;
   private accessors: WysiwygSessionAccessors = NO_ACCESSORS;
 
   constructor(source: string, options: WysiwygSessionOptions) {
@@ -363,6 +367,7 @@ export class WysiwygSession {
 
   getSnapshot(): WysiwygSessionSnapshot { return this.snapshot; }
   getSource(): string { return this.document.source; }
+  getContentRevision(): number { return this.contentRevision; }
   getVisibleSource(): string {
     const collected = this.pendingIndex === null ? null : this.collectBlock(this.pendingIndex);
     if (!collected) return this.document.source;
@@ -373,10 +378,22 @@ export class WysiwygSession {
 
   // ── 输入与写回 ─────────────────────────────────────────────
 
+  /** beforeinput 先于浏览器改写 DOM 执行；同一段连续输入只保留最早的光标。 */
+  beginInput(index: number): void {
+    if (this.pendingIndex !== null && this.pendingIndex !== index) this.flushWriteBack();
+    this.pendingIndex = index;
+    if (this.pendingInputCaret === null) this.pendingInputCaret = this.locateCaretOffset() ?? this.lastCaret;
+  }
+
   markComposing(composing: boolean, index?: number): void {
     if (index !== undefined && this.pendingIndex !== null && this.pendingIndex !== index) this.flushWriteBack();
     this.composing = composing;
-    if (index !== undefined) this.pendingIndex = index;
+    if (index !== undefined) {
+      if (composing && this.pendingIndex !== index && this.pendingInputCaret === null) {
+        this.pendingInputCaret = this.locateCaretOffset() ?? this.lastCaret;
+      }
+      this.pendingIndex = index;
+    }
     if (composing) {
       if (this.writeBackTimer !== null) {
         clearTimeout(this.writeBackTimer);
@@ -516,8 +533,10 @@ export class WysiwygSession {
       this.writeBackTimer = null;
     }
     const index = this.pendingIndex;
+    const inputCaret = this.pendingInputCaret;
     this.pendingIndex = null;
-    if (index !== null) this.writeBackBlock(index);
+    this.pendingInputCaret = null;
+    if (index !== null) this.writeBackBlock(index, inputCaret);
   }
 
   /** 外部调用（工具栏、AI、图床）前的准备：先落盘，保证源码与偏移一致。 */
@@ -536,12 +555,12 @@ export class WysiwygSession {
     this.emit();
   }
 
-  private writeBackBlock(index: number): void {
+  private writeBackBlock(index: number, inputCaret: number | null = null): void {
     const collected = this.collectBlock(index);
     if (!collected) return;
     const markdown = withEol(collected.serialized.markdown, this.document.eol);
     if (markdown === collected.block.source) return;
-    this.commit(collected.block, markdown);
+    this.commit(collected.block, markdown, inputCaret);
   }
 
   /**
@@ -550,12 +569,12 @@ export class WysiwygSession {
    * 写回让块类型或块数变化时（例如刚敲出 `# ` 变成标题）必须规范化重渲染并把光标恢复到
    * 写回前的位置；否则保留 DOM（光标本来就在正确位置，重建反而会丢光标）。
    */
-  private commit(block: WysiwygBlock, nextBlockSource: string): void {
+  private commit(block: WysiwygBlock, nextBlockSource: string, inputCaret: number | null = null): void {
     nextBlockSource = withEol(nextBlockSource, this.document.eol);
     const index = this.document.blocks.indexOf(block);
     if (index >= 0) this.dirtyBlockIndices.add(index);
     const caretBefore = this.locateCaretOffset();
-    this.pushUndo({ coalesce: true });
+    this.pushUndo({ coalesce: true, caret: inputCaret ?? caretBefore ?? this.lastCaret });
 
     const next = replaceBlockSource(this.document, block, nextBlockSource);
     const kindChanged = index >= 0 && next.blocks[index]?.kind !== block.kind;
@@ -1032,6 +1051,7 @@ export class WysiwygSession {
     if (source === this.document.source) return;
     if (!this.options.externalHistoryRecorded) this.pushUndo({ coalesce: false });
     this.document = splitMarkdownDocument(source);
+    this.contentRevision += 1;
     this.skipRenderIndex = null;
     this.emit();
   }
@@ -1486,7 +1506,7 @@ export class WysiwygSession {
     }
     const local = this.containerOffsetOfPoint(collected, pointNode, pointOffset);
     if (local === null) return null;
-    return { index, offset: collected.block.offset + withEol(collected.serialized.markdown.slice(0, local), this.document.eol).length + (atom ? 1 : 0), blockStart: collected.block.offset };
+    return { index, offset: collected.block.offset + this.sourceOffsetOfLocal(collected, local) + (atom ? 1 : 0), blockStart: collected.block.offset };
   }
 
   /** 控制器用：块索引 → 元素（滚动定位）。 */
@@ -1574,15 +1594,16 @@ export class WysiwygSession {
     }
   }
 
-  private pushUndo(options: { coalesce: boolean; source?: string }): void {
+  private pushUndo(options: { coalesce: boolean; source?: string; caret?: number }): void {
     this.undo.push({
       source: options.source ?? this.document.source,
-      caret: this.locateCaretOffset() ?? this.lastCaret,
+      caret: options.caret ?? this.locateCaretOffset() ?? this.lastCaret,
       timestamp: Date.now(),
     }, options);
   }
 
   private persist(): void {
+    this.contentRevision += 1;
     this.options.onSourceChange(this.document.source);
   }
 
@@ -1669,7 +1690,23 @@ export class WysiwygSession {
     if (!collected || !collected.element.contains(node)) return null;
     const local = this.containerOffsetOfPoint(collected, node, offset);
     if (local === null) return null;
-    return collected.block.offset + withEol(collected.serialized.markdown.slice(0, local), this.document.eol).length;
+    return collected.block.offset + this.sourceOffsetOfLocal(collected, local);
+  }
+
+  /**
+   * 表格的容器偏移已由 collectBlockForOffset 对齐到原始源码；其它块使用序列化坐标，
+   * 因此只有非表格需要在这里转换换行符。重复转换会让 CRLF 表格光标逐行前移。
+   */
+  private sourceOffsetOfLocal(collected: CollectedBlock, local: number): number {
+    return collected.block.kind === 'table'
+      ? local
+      : withEol(collected.serialized.markdown.slice(0, local), this.document.eol).length;
+  }
+
+  private localOffsetOfSource(collected: CollectedBlock, sourceLocal: number): number {
+    return collected.block.kind === 'table'
+      ? sourceLocal
+      : withEol(collected.serialized.markdown, this.document.eol).slice(0, sourceLocal).replace(/\r\n|\n|\r/g, '\n').length;
   }
 
   /** 全文档光标偏移（撤销快照用）。 */
@@ -1717,7 +1754,7 @@ export class WysiwygSession {
     const collected = this.collectBlockForOffset(index);
     if (!collected) return null;
     const sourceLocal = offset - collected.block.offset;
-    const local = withEol(withEol(collected.serialized.markdown, this.document.eol).slice(0, sourceLocal), '\n').length;
+    const local = this.localOffsetOfSource(collected, sourceLocal);
     let fallback: Range | null = null;
     for (const container of collected.serialized.containers) {
       const containerNode = pathToNode(collected.element, container.path);

@@ -525,7 +525,7 @@ function ApiChatPanel({ onRuntimeChange }: { onRuntimeChange: (runtime: AIRuntim
             <div key={i} className="chatbot-attachment-chip">
               <ComposerIcon type={att.type === 'image' ? 'image' : 'document'} />
               <span className="chatbot-attachment-name">{att.name}</span>
-              <button className="chatbot-attachment-remove" onClick={() => removeAttachment(i)} aria-label="关闭"><AppIcon name="close" size={16} /></button>
+              <button className="chatbot-attachment-remove" onClick={() => removeAttachment(i)} aria-label={`移除附件 ${att.name}`}><AppIcon name="close" size={16} /></button>
             </div>
           ))}
         </div>
@@ -535,7 +535,7 @@ function ApiChatPanel({ onRuntimeChange }: { onRuntimeChange: (runtime: AIRuntim
         <div className="chatbot-linked-doc-bar">
           <span className="chatbot-linked-doc-icon"><ComposerIcon type="document" /></span>
           <span className="chatbot-linked-doc-name">{linkedDocument.title}</span>
-          <button className="chatbot-linked-doc-unlink" onClick={toggleCurrentDocumentLink} title="取消关联"><AppIcon name="close" size={16} /></button>
+          <button className="chatbot-linked-doc-unlink" onClick={toggleCurrentDocumentLink} title="取消关联" aria-label="取消关联当前文档"><AppIcon name="close" size={16} /></button>
         </div>
       )}
 
@@ -552,20 +552,31 @@ function ApiChatPanel({ onRuntimeChange }: { onRuntimeChange: (runtime: AIRuntim
           role="separator"
           aria-label="调整输入框高度"
           aria-orientation="horizontal"
-          title="向上拖动可增大输入框"
+          aria-valuemin={72}
+          aria-valuemax={280}
+          aria-valuenow={Math.round(composerHeight)}
+          tabIndex={0}
+          title="拖动或使用上下方向键调整输入框高度"
+          onKeyDown={event => {
+            if (!['ArrowUp', 'ArrowDown', 'Home', 'End'].includes(event.key)) return;
+            event.preventDefault();
+            setComposerHeight(event.key === 'Home' ? 72 : event.key === 'End' ? 280 : Math.max(72, Math.min(280, composerHeight + (event.key === 'ArrowUp' ? 16 : -16))));
+          }}
           onPointerDown={handleComposerResizeStart}
           onPointerMove={handleComposerResizeMove}
           onPointerUp={handleComposerResizeEnd}
           onPointerCancel={handleComposerResizeEnd}
         />
         <div className="chatbot-input-toolbar">
-          <button className="chatbot-toolbar-btn" onClick={handleAttach} title="上传附件">
+          <button className="chatbot-toolbar-btn" onClick={handleAttach} title="上传附件" aria-label="上传附件">
             <span className="chatbot-toolbar-icon"><ComposerIcon type="attach" /></span>
           </button>
           <button
             className={`chatbot-toolbar-btn chatbot-link-btn ${linkedDocument ? 'linked' : ''}`}
             onClick={toggleCurrentDocumentLink}
             title={linkedDocument ? '取消关联文档' : '关联当前文档'}
+            aria-label={linkedDocument ? '取消关联文档' : '关联当前文档'}
+            aria-pressed={Boolean(linkedDocument)}
           >
             <span className="chatbot-toolbar-icon"><ComposerIcon type="document" /></span>
           </button>

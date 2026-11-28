@@ -17,6 +17,7 @@ src-tauri/target
 src-tauri/target-*
 /target
 src-tauri/resources/document_converter.exe
+src-tauri/binaries/
 converter/target/
 .converter-build/
 .converter-keys/

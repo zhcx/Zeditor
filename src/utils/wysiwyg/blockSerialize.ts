@@ -171,13 +171,16 @@ function writeList(writer: Writer, listPath: number[], list: InlineElementNode, 
     if (!isElement(child, ['li'])) return;
     writer.ensureNewline();
     const task = checkboxState(child);
-    const marker = task === null ? (ordered ? `${ordinal}.` : '-') : task ? '- [x]' : '- [ ]';
+    const ordinalMarker = `${ordinal}.`;
+    const listMarker = ordered ? ordinalMarker : '-';
+    const marker = task === null ? listMarker : `${listMarker} [${task ? 'x' : ' '}]`;
     writer.write(`${indent}${marker} `);
     const itemPath = [...listPath, childIndex];
-    // 任务框属于正文；缩进宽度只取列表标记本身（- / 10.）。
-    const markerWidth = (ordered && task === null ? `${ordinal}.` : '-').length + 1;
+    // 任务框属于正文；缩进宽度包含有序编号与任务标记。
+    const markerWidth = marker.length + 1;
     const continuationIndent = `${indent}${' '.repeat(markerWidth)}`;
-    const nextMarker = task !== null ? '- [ ]' : ordered ? `${ordinal + 1}.` : '-';
+    const nextListMarker = ordered ? `${ordinal + 1}.` : '-';
+    const nextMarker = task !== null ? `${nextListMarker} [ ]` : nextListMarker;
     const continuation = { prefix: `${indent}${nextMarker} `, separator: '\n', kind: 'list' as const, exitPrefix };
     const hasBlocks = child.children.some(node => isElement(node, ['p', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6']));
     let textWritten = false;

@@ -1,0 +1,28 @@
+.split-editor-shell { display: flex; flex: 1; flex-direction: column; min-width: 0; min-height: 0; width: 100%; height: 100%; }
+.split-editor-toolbar { display: flex; align-items: center; gap: var(--space-2, 8px); min-height: 34px; padding: var(--space-1, 4px) var(--space-2, 8px); border-bottom: 1px solid var(--border-color, var(--border)); background: var(--bg-panel); color: var(--text-secondary, var(--text-muted)); font-size: 12px; }
+.split-editor-toolbar label { display: flex; align-items: center; gap: var(--space-2, 8px); min-width: 0; }
+.split-editor-toolbar select { max-width: 240px; border: 1px solid var(--border-color, var(--border)); border-radius: var(--radius-sm, 8px); background: var(--bg-elevated); color: var(--text-primary, var(--text-color)); padding: 3px 6px; }
+.split-editor-toolbar button { border: 1px solid var(--border-color, var(--border)); border-radius: var(--radius-sm, 8px); background: transparent; color: inherit; padding: 3px 8px; cursor: pointer; }
+.split-editor-toolbar button:hover { background: var(--hover); }
+.split-editor-workspace { display: grid; flex: 1; min-width: 0; min-height: 0; overflow: hidden; }
+.split-editor-main { display: flex; flex-direction: column; min-width: 0; min-height: 0; overflow: hidden; }
+.split-editor-main > * { flex: 1; min-height: 0; }
+/* 分栏模式保留主工作区原有的源码/预览横向布局；其它模式仍为单列。 */
+.split-editor-main-split { flex-direction: row; }
+.split-editor-divider { background: var(--border-color, var(--border)); touch-action: none; cursor: col-resize; }
+.split-editor-divider:hover,
+.split-editor-divider:focus-visible { background: var(--accent-color, var(--accent)); outline: none; }
+.split-vertical .split-editor-divider { cursor: row-resize; }
+.secondary-editor-pane { display: flex; flex-direction: column; min-width: 0; min-height: 0; background: var(--bg-document); color: var(--text-primary, var(--text-color)); }
+.secondary-editor-header { display: flex; align-items: center; gap: var(--space-2, 8px); min-height: 34px; padding: var(--space-1, 4px) var(--space-2, 8px); border-bottom: 1px solid var(--border-color, var(--border)); }
+.secondary-editor-title { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; }
+.secondary-editor-header button { border: 0; background: transparent; color: inherit; cursor: pointer; padding: 2px 5px; }
+.secondary-editor-header button:disabled { opacity: .45; cursor: default; }
+.secondary-editor-host { position: relative; flex: 1; min-height: 0; }
+.secondary-editor-loading,
+.split-editor-empty { display: grid; place-items: center; height: 100%; padding: var(--space-4, 16px); color: var(--text-muted); font-size: 13px; }
+
+@media (max-width: 800px) {
+  .split-editor-toolbar { flex-wrap: wrap; }
+  .split-editor-toolbar select { max-width: 150px; }
+}

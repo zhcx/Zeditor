@@ -7,6 +7,7 @@ import { useEffect, useState } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { AppIcon } from '../Icons/AppIcon';
 import { openWikiBacklink, workspaceRoots } from '../../services/wikiLinks';
+import { knowledgeIndexService } from '../../services/knowledgeIndex';
 
 interface WikiBacklinkEntry {
   path: string;
@@ -26,13 +27,33 @@ export function BacklinksSection({ documentPath }: { documentPath: string | null
     if (!expanded) return undefined;
     if (!documentPath || !('__TAURI_INTERNALS__' in window)) return undefined;
     let cancelled = false;
-    void invoke<WikiBacklinkEntry[]>('find_wiki_backlinks', {
-      documentPath,
-      roots: workspaceRoots(),
-    })
-      .then((items) => { if (!cancelled) setResult({ path: documentPath, items }); })
-      .catch(() => { if (!cancelled) setResult({ path: documentPath, items: [] }); });
-    return () => { cancelled = true; };
+    const load = async () => {
+      const indexed = knowledgeIndexService.backlinks(documentPath);
+      if (indexed.length || knowledgeIndexService.get(documentPath)) {
+        const grouped = new Map<string, WikiBacklinkEntry>();
+        for (const note of indexed) {
+          const existing = grouped.get(note.path);
+          grouped.set(note.path, existing
+            ? { ...existing, count: existing.count + 1 }
+            : { path: note.path, title: note.title, line: note.link.line, excerpt: note.link.excerpt, count: 1 });
+        }
+        if (!cancelled) setResult({ path: documentPath, items: [...grouped.values()] });
+        return;
+      }
+      try {
+        const items = await invoke<WikiBacklinkEntry[]>('find_wiki_backlinks', { documentPath, roots: workspaceRoots() });
+        if (!cancelled) setResult({ path: documentPath, items });
+      } catch {
+        if (!cancelled) setResult({ path: documentPath, items: [] });
+      }
+    };
+    void load();
+    const onKnowledgeUpdate = () => setRevision(value => value + 1);
+    window.addEventListener('zeditor-knowledge-updated', onKnowledgeUpdate);
+    return () => {
+      cancelled = true;
+      window.removeEventListener('zeditor-knowledge-updated', onKnowledgeUpdate);
+    };
   }, [documentPath, expanded, revision]);
 
   const entries = result && result.path === documentPath ? result.items : [];

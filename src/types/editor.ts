@@ -1,3 +1,6 @@
+import type { EditorSurface } from '../utils/editorViewMemory.ts';
+import type { GhostKeyEvent, ReviewDecoration } from '../utils/reviewModel.ts';
+
 export interface EditorSelectionRange {
   from: number;
   to: number;
@@ -28,6 +31,8 @@ export interface EditorDispatchSpec {
 export interface EditorController {
   /** The tab whose text and selection this controller currently represents. */
   tabId?: string | null;
+  /** Actual input surface; mode can change before React publishes the next controller. */
+  surface?: EditorSurface;
   scrollDOM: HTMLElement;
   getScrollTop: () => number;
   getScrollHeight: () => number;
@@ -35,6 +40,8 @@ export interface EditorController {
   getTopForLineNumber: (lineNumber: number) => number;
   setScrollTop: (top: number) => void;
   onScroll: (listener: () => void) => () => void;
+  /** Optional cursor subscription used by the status bar; legacy mocks may omit it. */
+  onSelectionChange?: (listener: (selection: EditorSelectionRange) => void) => () => void;
   /** CodeMirror-compatible facade kept for existing toolbar and AI integrations. */
   state: {
     selection: { main: EditorSelectionRange };
@@ -64,4 +71,9 @@ export interface EditorController {
   undo: () => void;
   redo: () => void;
   revealOffset: (offset: number) => void;
+  /** Optional non-mutating inline-review adapter; legacy controller mocks need not implement it. */
+  getRevision?: () => string | number;
+  setGhostText?: (suggestion: { anchor: number; text: string; revision: string | number } | null) => void;
+  setReviewDecorations?: (decorations: ReviewDecoration[]) => void;
+  onReviewKeyDown?: (listener: (event: GhostKeyEvent) => boolean) => () => void;
 }

@@ -20,6 +20,7 @@ mod export_image;
 mod file_version;
 mod image;
 mod imaging;
+mod local_history;
 mod mcp;
 mod pdf;
 mod recovery;
@@ -225,6 +226,11 @@ fn main() {
             converter::uninstall_converter_module,
             commands::save_file_content,
             commands::save_file_content_checked,
+            local_history::local_history_record,
+            local_history::local_history_list,
+            local_history::local_history_read,
+            local_history::local_history_delete,
+            local_history::local_history_migrate,
             commands::read_file_base64,
             commands::reveal_in_file_manager,
             commands::read_clipboard_text,
@@ -235,7 +241,9 @@ fn main() {
             commands::update_recent_file,
             commands::remove_recent_file,
             commands::read_folder,
+            commands::read_folder_readonly,
             commands::create_file,
+            commands::create_file_exclusive,
             commands::create_directory,
             commands::delete_fs_item,
             commands::list_recycled_items,
@@ -295,8 +303,9 @@ fn main() {
             mcp::mcp_bridge_status,
             mcp::mcp_bridge_set_enabled,
             mcp::mcp_bridge_respond,
-            mcp::mcp_install_client_config,
-            mcp::mcp_client_config_status,
+            mcp::clients::mcp_install_client_config,
+            mcp::clients::mcp_client_config_status,
+            mcp::clients::mcp_probe_server,
             pdf::converter::export_pdf_direct,
         ])
         .manage(pending_open_files)

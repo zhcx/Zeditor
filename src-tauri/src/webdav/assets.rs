@@ -578,4 +578,41 @@ mod tests {
         fs::remove_dir_all(root).unwrap();
         fs::remove_dir_all(external).unwrap();
     }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn restore_rejects_a_symlinked_destination_ancestor() {
+        let root = super::super::test_support::test_temp_dir();
+        let external = super::super::test_support::test_temp_dir();
+        let linked_destination = root.join("linked-destination");
+        std::os::unix::fs::symlink(&external, &linked_destination).unwrap();
+        let client = super::super::WebDavClient::new(&super::super::WebDavSettings {
+            server_url: "https://example.com".into(),
+            ..Default::default()
+        })
+        .unwrap();
+        let version = super::super::WebDavVersion {
+            encoding: None,
+            id: "version".into(),
+            created_at: "2026-08-19T14:33:00Z".into(),
+            size: 4,
+            sha256: sha256_hex(b"note"),
+            snapshot_path: "/snapshot.md".into(),
+            assets: None,
+        };
+
+        let error = restore(
+            &client,
+            "note.md",
+            &version,
+            linked_destination.to_str().unwrap(),
+        )
+        .await
+        .unwrap_err();
+
+        assert!(error.contains("符号链接"), "unexpected error: {error}");
+        assert_eq!(fs::read_dir(&external).unwrap().count(), 0);
+        fs::remove_dir_all(root).unwrap();
+        fs::remove_dir_all(external).unwrap();
+    }
 }

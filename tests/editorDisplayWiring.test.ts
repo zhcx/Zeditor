@@ -64,9 +64,9 @@ test('显示设置：状态栏视图状态按钮与设置项开关', async () =>
   assert.match(statusBar, /const toggleViewMode: WorkspaceMode = mode === 'split'/);
   assert.doesNotMatch(statusBar, /next: 'immersive'/);
 
-  // Esc 关闭设置面板（等价「取消」）：下拉 / 字体选择会先 preventDefault，同步历史对话框仍打开时不动。
-  assert.match(panel, /if \(event\.key !== 'Escape' \|\| event\.isComposing \|\| event\.defaultPrevented\) return;/);
-  assert.match(panel, /cancelRef\.current\(\)/);
+  // Esc、焦点圈定与关闭后焦点恢复由公共模态 Hook 处理；下拉先 preventDefault 时不会关闭面板。
+  assert.match(panel, /useModalFocus<HTMLDivElement>\(true, handleCancel\)/);
+  assert.match(panel, /data-autofocus className="close-btn"/);
   // 拖动行宽只写一次设置：先预览，松手才落盘。
   assert.match(slider, /onPointerUp=/);
   assert.match(slider, /onBlur=/);

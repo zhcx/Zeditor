@@ -7,14 +7,14 @@
   input[type="password"],
   input[type="url"]
 ) {
-  height: 42px;
-  min-height: 42px;
-  padding: 0 14px;
-  border: 1px solid var(--border-color);
-  border-radius: 8px;
-  background: var(--bg-elevated);
-  color: var(--text-color);
-  font-size: 13.5px;
+  height: var(--ui-control-height-lg);
+  min-height: var(--ui-control-height-lg);
+  padding: 0 12px;
+  border: 1px solid var(--ui-border-default);
+  border-radius: var(--ui-radius-sm);
+  background: var(--ui-bg-input);
+  color: var(--ui-text-primary);
+  font-size: var(--ui-font-size-md);
   box-shadow: none;
   transition: border-color var(--transition), box-shadow var(--transition), background var(--transition);
 }
@@ -39,12 +39,12 @@
 
 /* 自绘下拉触发器与输入框保持一致 */
 .settings-panel .settings-main .settings-select-trigger {
-  height: 42px;
-  padding: 0 14px;
-  border: 1px solid var(--border-color);
-  border-radius: 8px;
-  background: var(--bg-elevated);
-  font-size: 13.5px;
+  height: var(--ui-control-height-lg);
+  padding: 0 12px;
+  border: 1px solid var(--ui-border-default);
+  border-radius: var(--ui-radius-sm);
+  background: var(--ui-bg-input);
+  font-size: var(--ui-font-size-md);
   box-shadow: none;
 }
 
@@ -71,34 +71,34 @@
 
 /* 主按钮 */
 .settings-panel :is(.save-btn, .fetch-models-btn) {
-  min-height: 36px;
-  padding: 0 18px;
+  min-height: var(--ui-control-height-md);
+  padding: 0 14px;
   border: 1px solid transparent;
-  border-radius: 8px;
-  background: var(--accent-color);
-  color: #fff;
-  font-size: 13px;
+  border-radius: var(--ui-radius-sm);
+  background: var(--ui-accent-solid);
+  color: var(--ui-text-inverse);
+  font-size: var(--ui-font-size-md);
   font-weight: 600;
-  box-shadow: 0 6px 16px color-mix(in srgb, var(--accent-color) 20%, transparent);
+  box-shadow: none;
   transition: background var(--transition), box-shadow var(--transition), transform var(--transition);
 }
 
 .settings-panel :is(.save-btn, .fetch-models-btn):hover:not(:disabled) {
-  background: var(--accent-hover);
-  box-shadow: 0 8px 20px color-mix(in srgb, var(--accent-color) 28%, transparent);
+  background: var(--ui-accent-solid-hover);
+  box-shadow: none;
 }
 
 .settings-panel :is(.save-btn, .fetch-models-btn):active:not(:disabled) { transform: translateY(1px); }
 
 /* 次按钮 */
 .settings-panel :is(.cancel-btn, .secondary-btn, .font-load-btn) {
-  min-height: 36px;
-  padding: 0 16px;
-  border: 1px solid var(--border-color);
-  border-radius: 8px;
-  background: var(--bg-elevated);
-  color: var(--text-color);
-  font-size: 13px;
+  min-height: var(--ui-control-height-md);
+  padding: 0 14px;
+  border: 1px solid var(--ui-border-default);
+  border-radius: var(--ui-radius-sm);
+  background: var(--ui-bg-input);
+  color: var(--ui-text-primary);
+  font-size: var(--ui-font-size-md);
   font-weight: 550;
   box-shadow: none;
   transition: background var(--transition), border-color var(--transition), color var(--transition);
@@ -137,23 +137,25 @@
 
 /* ── 云同步（WebDAV / S3）按钮与主/次按钮对齐 ───────────────────── */
 .settings-panel .webdav-action-primary {
+  min-height: var(--ui-control-height-md);
   border: 1px solid transparent;
-  border-radius: 8px;
-  background: var(--accent-color);
-  color: #fff;
-  box-shadow: 0 6px 16px color-mix(in srgb, var(--accent-color) 20%, transparent);
+  border-radius: var(--ui-radius-sm);
+  background: var(--ui-accent-solid);
+  color: var(--ui-text-inverse);
+  box-shadow: none;
 }
 
 .settings-panel .webdav-action-primary:hover:not(:disabled) {
-  background: var(--accent-hover);
-  box-shadow: 0 8px 20px color-mix(in srgb, var(--accent-color) 28%, transparent);
+  background: var(--ui-accent-solid-hover);
+  box-shadow: none;
 }
 
 .settings-panel .webdav-action-secondary {
-  border: 1px solid var(--border-color);
-  border-radius: 8px;
-  background: var(--bg-elevated);
-  color: var(--text-color);
+  min-height: var(--ui-control-height-md);
+  border: 1px solid var(--ui-border-default);
+  border-radius: var(--ui-radius-sm);
+  background: var(--ui-bg-input);
+  color: var(--ui-text-primary);
   box-shadow: none;
 }
 

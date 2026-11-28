@@ -77,7 +77,7 @@
   height: 22px;
   border-radius: 6px;
   background: var(--accent-color);
-  color: #fff;
+  color: var(--ui-text-inverse);
   font-size: 10px;
   font-weight: 700;
   line-height: 1;
