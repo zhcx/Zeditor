@@ -42,7 +42,6 @@
   "bundle": {
     "active": true,
     "targets": "all",
-    "externalBin": ["binaries/zeditor_mcp_server"],
     "resources": [],
     "fileAssociations": [
       {
