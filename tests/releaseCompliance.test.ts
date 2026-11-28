@@ -120,7 +120,11 @@ test('release workflows pin artifact actions to Node 24 runtimes', () => {
 
 test('Windows release workflow reserves both SignPath signing stages', () => {
   const workflow = read('.github/workflows/build.yml')
+  const windowsJob = workflow.slice(workflow.indexOf('  build-windows:'))
 
+  assert.match(windowsJob, /runs-on: windows-2022/)
+  assert.match(windowsJob, /Verify VBSCRIPT for WiX MSI builds/)
+  assert.match(windowsJob, /Get-WindowsOptionalFeature[^\n]*VBSCRIPT/)
   assert.match(workflow, /tauri build.*--no-bundle/i)
   assert.match(workflow, /tauri bundle/i)
   assert.ok((workflow.match(/actions\/upload-artifact@v7/g) ?? []).length >= 2)

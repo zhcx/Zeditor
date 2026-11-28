@@ -282,7 +282,8 @@ jobs:
     name: Windows x64 — two-stage signing
     needs: prepare-release
     if: ${{ github.event_name == 'push' || github.event.inputs.platforms == '' || github.event.inputs.platforms == 'all' || github.event.inputs.platforms == 'windows' }}
-    runs-on: windows-latest
+    # WiX light.exe 依赖 VBSCRIPT；Windows 2025 runner 已不再默认提供该可选功能。
+    runs-on: windows-2022
     env:
       WINDOWS_TARGET: x86_64-pc-windows-msvc
       SIGNPATH_API_TOKEN: ${{ secrets.SIGNPATH_API_TOKEN }}
@@ -315,6 +316,15 @@ jobs:
 
       - name: Install frontend dependencies
         run: npm ci
+
+      - name: Verify VBSCRIPT for WiX MSI builds
+        shell: pwsh
+        run: |
+          $feature = Get-WindowsOptionalFeature -Online -FeatureName VBSCRIPT
+          if ($feature.State -ne 'Enabled') {
+            throw "WiX MSI builds require the VBSCRIPT optional feature (current state: $($feature.State))."
+          }
+          Write-Host "VBSCRIPT is enabled."
 
       - name: Detect SignPath configuration
         id: signpath
