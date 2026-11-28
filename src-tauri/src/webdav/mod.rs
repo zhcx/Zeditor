@@ -382,7 +382,7 @@ pub(crate) mod test_support {
     pub(crate) fn test_temp_dir() -> std::path::PathBuf {
         let path = std::env::temp_dir().join(format!("zeditor-webdav-{}", uuid::Uuid::new_v4()));
         std::fs::create_dir_all(&path).expect("create temp directory");
-        path
+        std::fs::canonicalize(&path).expect("canonicalize temp directory")
     }
 }
 

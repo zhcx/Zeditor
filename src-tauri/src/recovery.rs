@@ -385,7 +385,17 @@ mod tests {
             .as_nanos();
         let path = std::env::temp_dir().join(format!("zeditor-recovery-test-{nonce}"));
         fs::create_dir_all(&path).expect("create temp dir");
-        path
+        fs::canonicalize(&path).expect("canonicalize temp dir")
+    }
+
+    fn wait_for_next_millis(previous: i64) -> i64 {
+        loop {
+            let now = current_time_millis();
+            if now > previous {
+                return now;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(1));
+        }
     }
 
     fn snapshot(id: &str, updated_at: i64, content: &str) -> RecoverySnapshot {
@@ -405,11 +415,12 @@ mod tests {
     fn saves_and_lists_a_camel_case_snapshot() {
         let root = test_dir();
         let store = RecoveryStore::new(root.join("recovery-snapshots.json"));
-        let now = current_time_millis();
+        let initial_updated_at = current_time_millis();
         store
-            .upsert(snapshot("tab-a", now, "初始内容"))
+            .upsert(snapshot("tab-a", initial_updated_at, "初始内容"))
             .expect("save initial snapshot");
-        let expected = snapshot("tab-a", now.saturating_add(1), "恢复内容");
+        let updated_at = wait_for_next_millis(initial_updated_at);
+        let expected = snapshot("tab-a", updated_at, "恢复内容");
 
         store.upsert(expected.clone()).expect("save snapshot");
 

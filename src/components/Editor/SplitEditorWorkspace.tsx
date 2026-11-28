@@ -7,6 +7,7 @@ import '../../styles/splitWorkspace.css';
 export function SplitEditorWorkspace({ children }: { children: ReactNode }) {
   const tabs = useAppStore(state => state.tabs);
   const activeTabId = useAppStore(state => state.activeTabId);
+  const mode = useAppStore(state => state.mode);
   const { enabled, secondaryTabId, orientation, ratio, setSecondaryTab, setOrientation, setRatio, disableSplit } = useWorkspaceLayoutStore();
   const hostRef = useRef<HTMLDivElement>(null);
   const draggingRef = useRef(false);
@@ -50,7 +51,7 @@ export function SplitEditorWorkspace({ children }: { children: ReactNode }) {
         <button type="button" onClick={disableSplit}>关闭分栏</button>
       </header>
       <div ref={hostRef} className={`split-editor-workspace split-${orientation}`} style={style}>
-        <div className="split-editor-main">{children}</div>
+        <div className={`split-editor-main split-editor-main-${mode}`}>{children}</div>
         <div
           className="split-editor-divider"
           role="separator"

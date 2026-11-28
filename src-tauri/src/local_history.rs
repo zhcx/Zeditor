@@ -173,7 +173,7 @@ impl LocalHistoryStore {
         self.write_index(document_id, &index)?;
         index
             .versions
-            .sort_by(|a, b| b.created_at.cmp(&a.created_at));
+            .sort_by_key(|entry| std::cmp::Reverse(entry.created_at));
         Ok(index.versions)
     }
 

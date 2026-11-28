@@ -66,6 +66,10 @@ jobs:
       - name: Install locked frontend dependencies
         run: npm ci --no-audit
 
+      - name: Build and stage MCP sidecar for Rust checks
+        run: |
+          npm run mcp:sidecar -- x86_64-pc-windows-msvc debug
+
       - name: Check frontend quality
         run: |
           npm run lint
@@ -209,6 +213,10 @@ jobs:
           }
           NODE
 
+      - name: Build and stage MCP sidecar
+        run: |
+          npm run mcp:sidecar -- ${{ matrix.target }}
+
       - name: Build and publish Tauri bundles
         uses: tauri-apps/tauri-action@v0
         env:
@@ -254,6 +262,10 @@ jobs:
 
       - name: Install frontend dependencies
         run: npm ci
+
+      - name: Build and stage MCP sidecar
+        run: |
+          npm run mcp:sidecar -- x86_64-unknown-linux-gnu
 
       - name: Build and publish Tauri bundles
         uses: tauri-apps/tauri-action@v0
@@ -311,6 +323,10 @@ jobs:
           "enabled=false" >> $env:GITHUB_OUTPUT
           "SIGNPATH_ENABLED=false" >> $env:GITHUB_ENV
           Write-Host "Code signing disabled for this build."
+
+      - name: Build and stage MCP sidecar
+        run: |
+          npm run mcp:sidecar -- ${{ env.WINDOWS_TARGET }}
 
       - name: Build unsigned application executable
         run: npm run tauri build -- --target ${{ env.WINDOWS_TARGET }} --no-bundle --no-sign

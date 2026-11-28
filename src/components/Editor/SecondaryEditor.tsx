@@ -3,6 +3,9 @@ import type * as Monaco from 'monaco-editor/esm/vs/editor/editor.api.js';
 import { loadMonaco } from './monacoLoader.ts';
 import { useAppStore } from '../../stores/appStore.ts';
 import { installWikiCompletionProvider, registerSecondaryWikiPath } from '../../utils/wikiCompletionProvider.ts';
+import { getFocusedSecondaryEditor, installEditorFocusTracking, setFocusedSecondaryEditor, type FocusedDocumentEditor } from '../../services/editorFocus.ts';
+
+installEditorFocusTracking();
 
 const models = new Map<string, Monaco.editor.ITextModel>();
 
@@ -34,6 +37,9 @@ export function SecondaryEditor({ tabId, title, content, modified, path, onClose
   useEffect(() => {
     let cancelled = false;
     let changeDisposer: Monaco.IDisposable | null = null;
+    let focusDisposer: Monaco.IDisposable | null = null;
+    let ownedModel: Monaco.editor.ITextModel | null = null;
+    let focusedTarget: FocusedDocumentEditor | null = null;
     void loadMonaco().then(monaco => {
       if (cancelled || !hostRef.current) return;
       installWikiCompletionProvider(monaco);
@@ -46,6 +52,7 @@ export function SecondaryEditor({ tabId, title, content, modified, path, onClose
       } else if (model.getValue() !== initialContent) {
         model.setValue(initialContent);
       }
+      ownedModel = model;
       modelRef.current = model;
       const editor = monaco.editor.create(hostRef.current, {
         model,
@@ -62,14 +69,29 @@ export function SecondaryEditor({ tabId, title, content, modified, path, onClose
         handleChange(model!.getValue());
       });
       editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyS, saveSecondary);
+      focusedTarget = {
+        tabId,
+        undo: () => { editor.trigger('native-menu', 'undo', null); },
+        redo: () => { editor.trigger('native-menu', 'redo', null); },
+        focus: () => editor.focus(),
+      };
+      focusDisposer = editor.onDidFocusEditorText(() => setFocusedSecondaryEditor(focusedTarget));
       setReady(true);
     });
     return () => {
       cancelled = true;
       changeDisposer?.dispose();
+      focusDisposer?.dispose();
+      if (focusedTarget && getFocusedSecondaryEditor() === focusedTarget) setFocusedSecondaryEditor(null);
       editorRef.current?.dispose();
       editorRef.current = null;
       modelRef.current = null;
+      setReady(false);
+      if (ownedModel) {
+        if (models.get(tabId) === ownedModel) models.delete(tabId);
+        ownedModel.dispose();
+        ownedModel = null;
+      }
     };
   }, [tabId, saveSecondary, handleChange]);
 

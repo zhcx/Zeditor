@@ -8,7 +8,7 @@ use std::fs;
 use std::io::{BufRead, BufReader, Write};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
-use std::sync::mpsc;
+use std::sync::{mpsc, Arc, Mutex};
 use std::time::Duration;
 
 use serde_json::{json, Value};
@@ -375,7 +375,7 @@ fn upsert_yaml(text: &str, binary: &Path) -> Result<String, String> {
                 .map_err(|error| error.to_string())?,
         );
     }
-    Ok(serde_yaml::to_string(&root).map_err(|error| error.to_string())?)
+    serde_yaml::to_string(&root).map_err(|error| error.to_string())
 }
 
 fn upsert_config(format: ClientConfigFormat, text: &str, binary: &Path) -> Result<String, String> {
@@ -531,8 +531,7 @@ fn receive_json(
     loop {
         let line = receiver
             .recv_timeout(deadline)
-            .map_err(|error| format!("等待 MCP 服务响应超时或退出：{error}"))?
-            .map_err(|error| error)?;
+            .map_err(|error| format!("等待 MCP 服务响应超时或退出：{error}"))??;
         let value: Value =
             serde_json::from_str(&line).map_err(|error| format!("MCP 响应不是 JSON：{error}"))?;
         if value.get("id").and_then(Value::as_u64) == Some(id) {
@@ -545,6 +544,34 @@ fn receive_json(
                 .ok_or_else(|| "MCP 响应缺少 result".to_string());
         }
     }
+}
+
+fn drain_stderr(reader: impl std::io::Read + Send + 'static) -> Arc<Mutex<String>> {
+    let output = Arc::new(Mutex::new(String::new()));
+    let sink = Arc::clone(&output);
+    std::thread::spawn(move || {
+        for line in BufReader::new(reader).lines() {
+            let Ok(line) = line else { break };
+            let mut tail = match sink.lock() {
+                Ok(tail) => tail,
+                Err(poisoned) => poisoned.into_inner(),
+            };
+            tail.push_str(&line);
+            tail.push('\n');
+            while tail.chars().count() > 8192 {
+                tail.remove(0);
+            }
+        }
+    });
+    output
+}
+
+fn stderr_tail(output: &Mutex<String>) -> String {
+    let tail = match output.lock() {
+        Ok(tail) => tail,
+        Err(poisoned) => poisoned.into_inner(),
+    };
+    tail.trim().to_string()
 }
 
 fn probe_server_sync() -> Result<Value, String> {
@@ -563,6 +590,12 @@ fn probe_server_sync() -> Result<Value, String> {
         .stdout
         .take()
         .ok_or_else(|| "无法打开 MCP sidecar stdout".to_string())?;
+    let stderr = child
+        .stderr
+        .take()
+        .ok_or_else(|| "无法打开 MCP sidecar stderr".to_string())?;
+    // sidecar 可能持续写日志；必须同步排空管道，否则日志写满后会卡住握手。
+    let stderr_output = drain_stderr(stderr);
     let (sender, receiver) = mpsc::channel();
     std::thread::spawn(move || {
         for line in BufReader::new(stdout).lines() {
@@ -575,54 +608,46 @@ fn probe_server_sync() -> Result<Value, String> {
         }
     });
 
-    let initialize = json!({
-        "jsonrpc": "2.0",
-        "id": 1,
-        "method": "initialize",
-        "params": {
-            "protocolVersion": "2025-03-26",
-            "capabilities": {},
-            "clientInfo": { "name": "Zeditor", "version": env!("CARGO_PKG_VERSION") },
-        },
-    });
-    send_json(&mut stdin, initialize)?;
-    let initialized = match receive_json(&receiver, 1) {
-        Ok(value) => value,
-        Err(error) => {
-            let _ = child.kill();
-            let output = child.wait_with_output().map_err(|_| error.clone())?;
-            let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
-            return Err(if stderr.is_empty() {
-                error
-            } else {
-                format!("{error}\n{stderr}")
-            });
-        }
-    };
-    send_json(
-        &mut stdin,
-        json!({ "jsonrpc": "2.0", "method": "notifications/initialized" }),
-    )?;
-    send_json(
-        &mut stdin,
-        json!({ "jsonrpc": "2.0", "id": 2, "method": "tools/list", "params": {} }),
-    )?;
-    let tools = match receive_json(&receiver, 2) {
-        Ok(value) => value,
-        Err(error) => {
-            let _ = child.kill();
-            let _ = child.wait();
-            return Err(error);
-        }
-    };
+    let result: Result<Value, String> = (|| {
+        let initialize = json!({
+            "jsonrpc": "2.0",
+            "id": 1,
+            "method": "initialize",
+            "params": {
+                "protocolVersion": "2025-03-26",
+                "capabilities": {},
+                "clientInfo": { "name": "Zeditor", "version": env!("CARGO_PKG_VERSION") },
+            },
+        });
+        send_json(&mut stdin, initialize)?;
+        let initialized = receive_json(&receiver, 1)?;
+        send_json(
+            &mut stdin,
+            json!({ "jsonrpc": "2.0", "method": "notifications/initialized" }),
+        )?;
+        send_json(
+            &mut stdin,
+            json!({ "jsonrpc": "2.0", "id": 2, "method": "tools/list", "params": {} }),
+        )?;
+        let tools = receive_json(&receiver, 2)?;
+        Ok(json!({
+            "ok": true,
+            "protocolVersion": initialized.get("protocolVersion").cloned().unwrap_or(Value::Null),
+            "serverInfo": initialized.get("serverInfo").cloned().unwrap_or(Value::Null),
+            "tools": tools.get("tools").and_then(Value::as_array).map(Vec::len).unwrap_or(0),
+        }))
+    })();
+
     let _ = child.kill();
     let _ = child.wait();
-    Ok(json!({
-        "ok": true,
-        "protocolVersion": initialized.get("protocolVersion").cloned().unwrap_or(Value::Null),
-        "serverInfo": initialized.get("serverInfo").cloned().unwrap_or(Value::Null),
-        "tools": tools.get("tools").and_then(Value::as_array).map(Vec::len).unwrap_or(0),
-    }))
+    result.map_err(|error| {
+        let tail = stderr_tail(&stderr_output);
+        if tail.is_empty() {
+            error
+        } else {
+            format!("{error}\n{tail}")
+        }
+    })
 }
 
 /// 启动 sidecar 并完成 initialize + tools/list 握手，用于设置页连接自检。
@@ -642,6 +667,24 @@ mod tests {
             std::env::temp_dir().join(format!("zeditor-mcp-{label}-{}", uuid::Uuid::new_v4()));
         fs::create_dir_all(&path).unwrap();
         path
+    }
+
+    #[test]
+    fn stderr_drain_keeps_a_bounded_unicode_tail() {
+        let output = drain_stderr(std::io::Cursor::new("日志".repeat(5000)));
+        let deadline = std::time::Instant::now() + Duration::from_secs(2);
+        loop {
+            let tail = output.lock().unwrap();
+            if tail.chars().count() == 8192 || std::time::Instant::now() >= deadline {
+                assert_eq!(tail.chars().count(), 8192);
+                assert!(tail
+                    .chars()
+                    .all(|character| matches!(character, '日' | '志' | '\n')));
+                break;
+            }
+            drop(tail);
+            std::thread::sleep(Duration::from_millis(1));
+        }
     }
 
     #[test]

@@ -27,14 +27,15 @@ import { copyActiveAsRichText } from '../../services/libraryActions';
 import appPackage from '../../../package.json';
 import changelog from '../../../CHANGELOG.md?raw';
 import { getReleaseNotes } from '../../utils/releaseNotes';
+import { getFocusedSecondaryEditor } from '../../services/editorFocus';
 
 const currentReleaseNotes = getReleaseNotes(changelog, appPackage.version) ?? '暂无本版本更新说明。';
 
 function runHistoryCommand(action: 'undo' | 'redo') {
   const active = document.activeElement;
   const otherInput = active instanceof HTMLElement && active.matches('input, textarea, [contenteditable="true"]')
-    && !active.closest('.editor-workspace-pane, .wysiwyg-workspace-pane, .zen-editor-pane');
-  const editor = useAppStore.getState().editorView;
+    && !active.closest('.editor-workspace-pane, .wysiwyg-workspace-pane, .zen-editor-pane, .secondary-editor-host');
+  const editor = getFocusedSecondaryEditor() ?? useAppStore.getState().editorView;
   if (otherInput || !editor) document.execCommand(action);
   else { editor[action](); editor.focus(); }
 }
@@ -484,9 +485,8 @@ export function MenuBar() {
     addTab,
     openFile,
     convertDocument,
-    saveTab,
-    getActiveTab
-  } = useAppStore(useShallow(state => ({ activeTabId: state.activeTabId, settings: state.settings, setSettings: state.setSettings, setSettingsOpen: state.setSettingsOpen, addTab: state.addTab, openFile: state.openFile, convertDocument: state.convertDocument, saveTab: state.saveTab, getActiveTab: state.getActiveTab })));
+    saveTab
+  } = useAppStore(useShallow(state => ({ activeTabId: state.activeTabId, settings: state.settings, setSettings: state.setSettings, setSettingsOpen: state.setSettingsOpen, addTab: state.addTab, openFile: state.openFile, convertDocument: state.convertDocument, saveTab: state.saveTab })));
   const mode = useAppStore((state) => state.mode);
   // 主题偏好解析与 themes/apply 的 resolveThemePreference 同规则，用于菜单当前态勾选。
   const resolvedTheme = resolveThemePreference(settings.appearance.theme);
@@ -626,8 +626,14 @@ export function MenuBar() {
     setMenuOpen(false);
   };
 
+  const getCommandTab = () => {
+    const state = useAppStore.getState();
+    return state.tabs.find(tab => tab.id === getFocusedSecondaryEditor()?.tabId)
+      ?? state.tabs.find(tab => tab.id === state.activeTabId);
+  };
+
   const handleSaveFile = async () => {
-    const tab = getActiveTab();
+    const tab = getCommandTab();
     if (tab?.path) {
       try {
         await saveTab(tab.id, tab.path);
@@ -641,8 +647,9 @@ export function MenuBar() {
   };
 
   const handleSaveAs = async () => {
+    getFocusedSecondaryEditor()?.flushPendingEdits?.();
     useAppStore.getState().editorView?.flushPendingEdits?.();
-    const targetTab = getActiveTab();
+    const targetTab = getCommandTab();
     if (!targetTab) return;
     try {
       const baseName = targetTab.path ? '' : resolveSaveBaseName(targetTab.title, targetTab.content);
