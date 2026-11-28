@@ -15,6 +15,8 @@ export interface KnowledgeState {
   scanning: boolean;
   error: string | null;
   revision: number;
+  favorites: string[];
+  toggleFavorite: (path: string) => void;
   setRoot: (root: string) => Promise<void>;
   scan: (root?: string) => Promise<void>;
   setActiveTab: (tab: KnowledgeTab) => void;
@@ -35,6 +37,17 @@ function writeRoots(roots: string[]): void {
   try { localStorage.setItem(KNOWLEDGE_ROOTS_KEY, JSON.stringify(roots)); } catch { /* Restricted storage is non-fatal. */ }
 }
 
+const FAVORITES_KEY = 'zeditor.knowledge-favorites.v1';
+function readFavorites(): string[] {
+  try {
+    const value: unknown = JSON.parse(localStorage.getItem(FAVORITES_KEY) || '[]');
+    return Array.isArray(value) ? [...new Set(value.filter((path): path is string => typeof path === 'string' && Boolean(path)))] : [];
+  } catch { return []; }
+}
+function writeFavorites(favorites: string[]): void {
+  try { localStorage.setItem(FAVORITES_KEY, JSON.stringify(favorites)); } catch { /* Restricted storage is non-fatal. */ }
+}
+
 /** The store intentionally owns no document copies; selectors query the shared index on demand. */
 export function createKnowledgeStore(index: KnowledgeIndex = knowledgeIndexService) {
   let scanGeneration = 0;
@@ -46,6 +59,14 @@ export function createKnowledgeStore(index: KnowledgeIndex = knowledgeIndexServi
     scanning: false,
     error: null,
     revision: 0,
+    favorites: readFavorites(),
+    toggleFavorite: path => set(state => {
+      const favorites = state.favorites.includes(path)
+        ? state.favorites.filter(item => item !== path)
+        : [...state.favorites, path];
+      writeFavorites(favorites);
+      return { favorites };
+    }),
     setRoot: async root => {
       const normalized = root.trim();
       if (!normalized) return;

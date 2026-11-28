@@ -46,6 +46,7 @@ function StatusGlyph({ name }: { name: 'ai' | 'proofread' | 'success' | 'error' 
 }
 
 export function StatusBar() {
+  const activeTabId = useAppStore(state => state.activeTabId);
   const activeEncoding = useAppStore(state => state.tabs.find(tab => tab.id === state.activeTabId)?.encoding || 'utf-8');
   const modified = useAppStore(state => state.tabs.find(tab => tab.id === state.activeTabId)?.modified ?? false);
   const externalChangePending = useAppStore(state => state.tabs.find(tab => tab.id === state.activeTabId)?.externalChangePending ?? false);
@@ -77,6 +78,20 @@ export function StatusBar() {
   // 渲染只读选区；getSelection 会提交所见即所得的挂起输入，不能在渲染期调用。
   const selection = editorView?.state.selection.main;
   const hasSelection = Boolean(selection && !selection.empty);
+  const [cursor, setCursor] = useState({ line: 1, column: 1 });
+  useEffect(() => {
+    if (!editorView) return;
+    const updateCursor = (next: { from: number }) => {
+      const line = editorView.state.doc.lineAt(next.from);
+      setCursor({ line: line.number, column: next.from - line.from + 1 });
+    };
+    const unsubscribe = editorView.onSelectionChange?.(updateCursor);
+    const frame = window.requestAnimationFrame(() => updateCursor(editorView.getSelection()));
+    return () => {
+      window.cancelAnimationFrame(frame);
+      unsubscribe?.();
+    };
+  }, [editorView, activeTabId]);
   const companionEnabled = (settings.ai.enabled || settings.agent.enabled) && settings.ai.auto_suggest;
   const companionStyleLabel = WRITING_STYLES.find(({ value }) => value === settings.ai.writing_style)?.label || '正式';
   // 视图状态按钮可在「设置 → 编辑器 → 显示」中关闭；关闭后只保留文字标签。
@@ -434,7 +449,7 @@ export function StatusBar() {
             <span className="status-divider" aria-hidden="true" />
           </>
         )}
-        <span className="status-item status-statistics" title={wordCount}>{wordCount}</span><span className="status-divider" aria-hidden="true" /><button type="button" className="status-item status-button status-encoding" aria-label="文字编码" title="选择保存编码或用指定编码重新打开（桌面版）" disabled={!('__TAURI_INTERNALS__' in window)} onClick={() => { const tab = useAppStore.getState().getActiveTab(); if (tab) useAppStore.getState().setEncodingDialog({ mode: 'save', tabId: tab.id }); }}>{encodingLabel(activeEncoding)}<AppIcon name="chevronUp" size={12} /></button>
+        <span className="status-item status-statistics" title={wordCount}>{wordCount}</span><span className="status-divider" aria-hidden="true" /><span className="status-item status-cursor" title="当前光标位置" aria-label={`第 ${cursor.line} 行，第 ${cursor.column} 列`}>{cursor.line}:{cursor.column}</span><span className="status-divider" aria-hidden="true" /><button type="button" className="status-item status-button status-encoding" aria-label="文字编码" title="选择保存编码或用指定编码重新打开（桌面版）" disabled={!('__TAURI_INTERNALS__' in window)} onClick={() => { const tab = useAppStore.getState().getActiveTab(); if (tab) useAppStore.getState().setEncodingDialog({ mode: 'save', tabId: tab.id }); }}>{encodingLabel(activeEncoding)}<AppIcon name="chevronUp" size={12} /></button>
       </div>
     </div>
   );

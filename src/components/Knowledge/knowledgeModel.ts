@@ -4,6 +4,7 @@ import type { NoteMetadata } from '../../utils/metadataIndex.ts';
 
 export interface KnowledgeViewProps {
   onOpenDocument?: (path: string) => void | Promise<void>;
+  onCreateNote?: () => void;
 }
 
 export function useKnowledgeDocumentOpener(onOpenDocument?: KnowledgeViewProps['onOpenDocument']) {

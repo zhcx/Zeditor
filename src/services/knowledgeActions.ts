@@ -24,6 +24,18 @@ export async function toggleMarkdownTask(path: string, lineNumber: number, done:
   return { content };
 }
 
+export async function createKnowledgeNote(root: string, title: string, invoker: Invoker = invoke as Invoker): Promise<{ path: string; created: boolean }> {
+  const safeTitle = [...title.trim()].map(character => character.charCodeAt(0) < 32 ? '-' : character).join('')
+    .replace(/[<>:"/\\|?*]/g, '-').replace(/\s+/g, ' ').trim().replace(/[. ]+$/, '') || '未命名笔记';
+  const path = `${root.replace(/[\\/]+$/, '')}/${safeTitle}.md`;
+  const content = `# ${safeTitle}\n\n`;
+  await invoker('read_folder', { path: root }).catch(() => []);
+  const created = await invoker<boolean>('create_file_exclusive', { path, content });
+  if (!created) throw new Error('同名笔记已存在，未覆盖。');
+  knowledgeIndexService.upsert(path, content);
+  return { path, created };
+}
+
 export async function createDailyNote(root: string, date: string, invoker: Invoker = invoke as Invoker): Promise<{ path: string; created: boolean }> {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || Number.isNaN(Date.parse(`${date}T00:00:00Z`))) throw new Error('日记日期无效');
   const path = `${root.replace(/[\\/]+$/, '')}/daily/${date}.md`;

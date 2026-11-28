@@ -1,9 +1,9 @@
 .local-history-panel {
-  --history-surface: var(--surface-raised, var(--bg-elevated));
-  --history-border: var(--border-color, var(--border));
-  --history-text: var(--text-primary, var(--text-color));
-  --history-muted: var(--text-secondary, var(--text-muted));
-  --history-accent: var(--accent-color, var(--accent));
+  --history-surface: var(--ui-bg-overlay);
+  --history-border: var(--ui-border-default);
+  --history-text: var(--ui-text-primary);
+  --history-muted: var(--ui-text-secondary);
+  --history-accent: var(--ui-accent);
   display: flex;
   flex-direction: column;
   min-height: 0;
@@ -49,12 +49,13 @@
 .local-history-entry small { color: var(--history-muted); font-size: 11px; }
 .local-history-entry small { display: block; margin: var(--space-1, 4px) 0; overflow-wrap: anywhere; }
 .local-history-entry footer { justify-content: flex-end; }
-.local-history-preview { position: fixed; inset: 12% 8%; z-index: 90; display: flex; flex-direction: column; background: var(--history-surface); border: 1px solid var(--history-border); border-radius: var(--radius-lg, 14px); box-shadow: var(--shadow-lg); overflow: hidden; }
+.local-history-preview { position: fixed; inset: 12% 8%; z-index: var(--ui-z-modal); display: flex; flex-direction: column; background: var(--history-surface); border: 1px solid var(--ui-border-strong); border-radius: var(--ui-radius-lg); box-shadow: var(--ui-shadow-dialog); overflow: hidden; }
 .local-history-preview header,
 .local-history-preview footer { justify-content: space-between; padding: var(--space-3, 12px); border-bottom: 1px solid var(--history-border); }
 .local-history-preview footer { border-top: 1px solid var(--history-border); border-bottom: 0; justify-content: flex-end; }
 .local-history-preview pre { flex: 1; margin: 0; padding: var(--space-4, 16px); overflow: auto; white-space: pre-wrap; font: 13px/1.6 var(--font-mono, monospace); }
-.local-history-preview .primary { border-color: var(--history-accent); background: var(--history-accent); color: var(--bg-document, #fff); }
+.local-history-preview .primary { min-height: var(--ui-control-height-md); padding-inline: 14px; border-color: var(--history-accent); border-radius: var(--ui-radius-sm); background: var(--history-accent); color: var(--ui-text-inverse); }
+.local-history-preview button:focus-visible { outline: 2px solid var(--ui-accent); outline-offset: 2px; }
 
 @media (max-width: 720px) {
   .local-history-preview { inset: 4% 3%; }

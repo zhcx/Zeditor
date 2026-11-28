@@ -9,7 +9,7 @@ import { invoke } from '@tauri-apps/api/core';
 import { useAppStore, type Settings } from '../../stores/appStore';
 import { formatShortcut } from '../../utils/platformShortcuts';
 import { useAIStore, COMPANION_CONTEXT_LIMIT, COMPANION_MIN_CONTEXT_CHARS, type ProofreadResult } from '../../stores/aiStore';
-import type { EditorController, EditorDispatchSpec, EditorLine } from '../../types/editor';
+import type { EditorController, EditorDispatchSpec, EditorLine, EditorSelectionRange } from '../../types/editor';
 import { EDITOR_OVERFLOW_OPTIONS, EDITOR_UNICODE_HIGHLIGHT_OPTIONS } from '../../utils/editorLayout';
 import { resolveEditorDisplay } from '../../utils/editorDisplay';
 import { installMarkdownIndentGuides } from './markdownIndentGuides';
@@ -311,6 +311,10 @@ function createController(editor: monaco.editor.IStandaloneCodeEditor, model: mo
       const disposable = editor.onDidScrollChange((event) => {
         if (event.scrollTopChanged || event.scrollHeightChanged) listener();
       });
+      return () => disposable.dispose();
+    },
+    onSelectionChange: (listener: (selection: EditorSelectionRange) => void) => {
+      const disposable = editor.onDidChangeCursorPosition(() => listener(getSelection()));
       return () => disposable.dispose();
     },
     getValue: () => model.getValue(),

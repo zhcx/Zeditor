@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useModalFocus } from '../../hooks/useModalFocus';
 import { AppIcon } from '../Icons/AppIcon.tsx';
 import { useAppStore } from '../../stores/appStore.ts';
 import { documentIdForPath, localHistoryService, type LocalHistoryEntry } from '../../services/localHistory.ts';
@@ -15,6 +16,7 @@ export function LocalHistoryPanel({ style }: { style?: React.CSSProperties }) {
   const [preview, setPreview] = useState<{ entry: LocalHistoryEntry; content: string } | null>(null);
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState('');
+  const previewRef = useModalFocus<HTMLDivElement>(Boolean(preview), () => setPreview(null));
 
   const load = useCallback(async () => {
     if (!documentId) { setEntries([]); return; }
@@ -87,8 +89,8 @@ export function LocalHistoryPanel({ style }: { style?: React.CSSProperties }) {
         ))}
       </div>
       {preview && (
-        <div className="local-history-preview" role="dialog" aria-modal="true" aria-label="历史版本预览">
-          <header><strong>{preview.entry.label}</strong><button type="button" onClick={() => setPreview(null)} aria-label="关闭预览">×</button></header>
+        <div ref={previewRef} className="local-history-preview" role="dialog" aria-modal="true" aria-label="历史版本预览">
+          <header><strong>{preview.entry.label}</strong><button data-autofocus type="button" onClick={() => setPreview(null)} aria-label="关闭预览">×</button></header>
           <pre>{preview.content}</pre>
           <footer><button type="button" onClick={() => setPreview(null)}>取消</button><button type="button" className="primary" onClick={() => void restore()}>载入编辑器</button></footer>
         </div>

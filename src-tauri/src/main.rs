@@ -303,8 +303,9 @@ fn main() {
             mcp::mcp_bridge_status,
             mcp::mcp_bridge_set_enabled,
             mcp::mcp_bridge_respond,
-            mcp::mcp_install_client_config,
-            mcp::mcp_client_config_status,
+            mcp::clients::mcp_install_client_config,
+            mcp::clients::mcp_client_config_status,
+            mcp::clients::mcp_probe_server,
             pdf::converter::export_pdf_direct,
         ])
         .manage(pending_open_files)

@@ -40,6 +40,8 @@ export interface EditorController {
   getTopForLineNumber: (lineNumber: number) => number;
   setScrollTop: (top: number) => void;
   onScroll: (listener: () => void) => () => void;
+  /** Optional cursor subscription used by the status bar; legacy mocks may omit it. */
+  onSelectionChange?: (listener: (selection: EditorSelectionRange) => void) => () => void;
   /** CodeMirror-compatible facade kept for existing toolbar and AI integrations. */
   state: {
     selection: { main: EditorSelectionRange };

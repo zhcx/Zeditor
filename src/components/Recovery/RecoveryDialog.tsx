@@ -1,4 +1,5 @@
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
+import { useModalFocus } from '../../hooks/useModalFocus';
 import { AppIcon } from '../Icons/AppIcon';
 import type { RecoverySnapshot } from '../../utils/recovery';
 import './recovery.css';
@@ -18,23 +19,13 @@ const formatUpdatedAt = (timestamp: number) => {
 export function RecoveryDialog({ snapshots, onRestore, onSaveCopy, onDiscard }: RecoveryDialogProps) {
   const [selectedId, setSelectedId] = useState(snapshots[0]?.id ?? '');
   const selected = snapshots.find(snapshot => snapshot.id === selectedId) ?? snapshots[0];
-
-  useEffect(() => {
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') {
-        event.preventDefault();
-        event.stopPropagation();
-      }
-    };
-    window.addEventListener('keydown', onKeyDown, true);
-    return () => window.removeEventListener('keydown', onKeyDown, true);
-  }, []);
+  const dialogRef = useModalFocus<HTMLElement>(true);
 
   if (!selected) return null;
 
   return (
     <div className="recovery-overlay">
-      <section className="recovery-dialog" role="dialog" aria-modal="true" aria-labelledby="recovery-title">
+      <section ref={dialogRef} className="recovery-dialog" role="dialog" aria-modal="true" aria-labelledby="recovery-title">
         <header className="recovery-header">
           <span className="recovery-icon" aria-hidden="true"><AppIcon name="history" size={20} /></span>
           <div>

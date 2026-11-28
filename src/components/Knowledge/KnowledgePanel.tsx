@@ -1,9 +1,13 @@
-import { useEffect, useRef, useState, type FormEvent } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { AppIcon } from '../Icons/AppIcon.tsx';
 import { useKnowledgeStore } from '../../stores/knowledgeStore.ts';
 import '../../styles/knowledge.css';
 import { KnowledgeTabs } from './KnowledgeTabs.tsx';
-import { KnowledgeEmpty, KnowledgeError, KnowledgeLoading } from './KnowledgeStates.tsx';
+import { KnowledgeError, KnowledgeLoading } from './KnowledgeStates.tsx';
+import { KnowledgeSetup } from './KnowledgeSetup.tsx';
+import { KnowledgeSummary } from './KnowledgeSummary.tsx';
+import { KnowledgeSearch } from './KnowledgeSearch.tsx';
+import { KnowledgeQuickNote } from './KnowledgeQuickNote.tsx';
 import { DatabaseView } from './DatabaseView.tsx';
 import { TasksView } from './TasksView.tsx';
 import { CalendarView } from './CalendarView.tsx';
@@ -27,7 +31,8 @@ export function KnowledgePanel({ root, style, onOpenDocument }: KnowledgePanelPr
   const setRoot = useKnowledgeStore(state => state.setRoot);
   const scan = useKnowledgeStore(state => state.scan);
   const clearError = useKnowledgeStore(state => state.clearError);
-  const [draftRoot, setDraftRoot] = useState(root || '');
+  const [searchOpen, setSearchOpen] = useState(false);
+  const [quickNoteOpen, setQuickNoteOpen] = useState(false);
   const initializedRoot = useRef<string | null>(null);
   const activeRoot = root?.trim() || storedRoot;
 
@@ -39,11 +44,7 @@ export function KnowledgePanel({ root, style, onOpenDocument }: KnowledgePanelPr
     else void scan(target);
   }, [root, storedRoot, roots, setRoot, scan]);
 
-  const addRoot = (event: FormEvent) => {
-    event.preventDefault();
-    if (draftRoot.trim()) void setRoot(draftRoot);
-  };
-  const viewProps = { onOpenDocument };
+  const viewProps = { onOpenDocument, onCreateNote: () => setQuickNoteOpen(true) };
   const view = activeTab === 'database' ? <DatabaseView {...viewProps} />
     : activeTab === 'tasks' ? <TasksView {...viewProps} />
       : activeTab === 'calendar' ? <CalendarView {...viewProps} />
@@ -54,32 +55,35 @@ export function KnowledgePanel({ root, style, onOpenDocument }: KnowledgePanelPr
     <section className="knowledge-panel" style={style} aria-label="知识管理">
       <header className="knowledge-header">
         <div className="knowledge-title"><AppIcon name="notebook" size={17} /><strong>知识库</strong></div>
-        <div className="knowledge-root-controls">
-          {roots.length > 0 && (
+        <div className="knowledge-actions">
+          <button type="button" className={`knowledge-icon-button ${searchOpen ? 'is-active' : ''}`} aria-label="搜索知识库" title="搜索知识库" aria-pressed={searchOpen} disabled={!activeRoot} onClick={() => { setSearchOpen(open => !open); setQuickNoteOpen(false); }}><AppIcon name="search" size={16} /></button>
+          <button type="button" className={`knowledge-icon-button ${quickNoteOpen ? 'is-active' : ''}`} aria-label="新建笔记" title="新建笔记" aria-pressed={quickNoteOpen} disabled={!activeRoot} onClick={() => { setQuickNoteOpen(open => !open); setSearchOpen(false); }}><AppIcon name="filePlus" size={16} /></button>
+          <button type="button" className="knowledge-icon-button" aria-label="刷新知识库" title="刷新知识库" disabled={!activeRoot || scanning} onClick={() => void scan()}><AppIcon name="refresh" size={16} className={scanning ? 'knowledge-spin' : ''} /></button>
+        </div>
+      </header>
+
+      {!activeRoot ? (
+        <KnowledgeSetup roots={roots} onSelect={path => void setRoot(path)} busy={scanning} />
+      ) : (
+        <>
+          <div className="knowledge-root-bar">
+            <AppIcon name="folder" size={14} />
             <select aria-label="知识库根目录" value={activeRoot} onChange={event => void setRoot(event.target.value)}>
               {[...new Set([...roots, activeRoot].filter(Boolean))].map(item => <option value={item} key={item}>{item}</option>)}
             </select>
-          )}
-          <button type="button" className="knowledge-icon-button" aria-label="刷新知识库" title="刷新知识库" disabled={!activeRoot || scanning} onClick={() => void scan()}>
-            <AppIcon name="refresh" size={16} className={scanning ? 'knowledge-spin' : ''} />
-          </button>
-        </div>
-      </header>
-      <KnowledgeTabs />
-      {scanning && <KnowledgeLoading />}
-      {error && <KnowledgeError message={error} onDismiss={clearError} />}
-      {!activeRoot ? (
-        <KnowledgeEmpty title="选择知识库根目录">
-          <p>从已有工作区选择，或输入本地文件夹路径。仅索引 Markdown 文档。</p>
-          <form className="knowledge-root-form" onSubmit={addRoot}>
-            <input aria-label="新增知识库根目录" placeholder="例如 C:/notes" value={draftRoot} onChange={event => setDraftRoot(event.target.value)} />
-            <button type="submit" disabled={!draftRoot.trim()}><AppIcon name="plus" size={15} />添加</button>
-          </form>
-        </KnowledgeEmpty>
-      ) : (
-        <main className="knowledge-view" id={`knowledge-view-${activeTab}`} role="tabpanel" aria-labelledby={`knowledge-tab-${activeTab}`}>
-          {view}
-        </main>
+          </div>
+          {!searchOpen && <><KnowledgeSummary /><KnowledgeTabs /></>}
+          {scanning && <KnowledgeLoading />}
+          {error && <KnowledgeError message={error} onDismiss={clearError} />}
+          {searchOpen
+            ? <KnowledgeSearch onClose={() => setSearchOpen(false)} onOpenDocument={onOpenDocument} />
+            : <>
+              {quickNoteOpen && <KnowledgeQuickNote onCancel={() => setQuickNoteOpen(false)} onOpenDocument={onOpenDocument} />}
+              <main className="knowledge-view" id={`knowledge-view-${activeTab}`} role="tabpanel" aria-labelledby={`knowledge-tab-${activeTab}`}>
+                {view}
+              </main>
+            </>}
+        </>
       )}
     </section>
   );

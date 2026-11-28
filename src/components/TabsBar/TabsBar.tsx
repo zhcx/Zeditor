@@ -65,7 +65,7 @@ export function TabsBar() {
               {tab.title}
               {tab.modified && <span className="tab-modified" title="未保存修改" aria-label="未保存修改">●</span>}
             </span>
-            <button type="button" className="tab-close" onClick={event => handleCloseTab(event, tab.id)} title="关闭标签页" aria-label={`关闭 ${tab.title}`}><AppIcon name="close" size={16} /></button>
+            <button type="button" className="tab-close" tabIndex={tab.id === activeTabId ? 0 : -1} aria-hidden={tab.id !== activeTabId} onClick={event => handleCloseTab(event, tab.id)} title="关闭标签页" aria-label={`关闭 ${tab.title}`}><AppIcon name="close" size={16} /></button>
           </div>
         ))}
       </div>

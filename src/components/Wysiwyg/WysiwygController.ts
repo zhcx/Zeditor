@@ -11,7 +11,7 @@
 import { countLines, lineAtOffset, offsetOfLine } from '../../utils/wysiwyg/textLines.ts';
 import { rectOfRange, revealElement } from './domCaret.ts';
 import type { WysiwygSession } from './wysiwygSession';
-import type { EditorController, EditorDispatchSpec, EditorLine } from '../../types/editor';
+import type { EditorController, EditorDispatchSpec, EditorLine, EditorSelectionRange } from '../../types/editor';
 import type { GhostKeyEvent, ReviewDecoration } from '../../utils/reviewModel.ts';
 
 export interface WysiwygControllerDeps {
@@ -115,6 +115,18 @@ export function createWysiwygController(deps: WysiwygControllerDeps): EditorCont
       if (!element) return () => undefined;
       element.addEventListener('scroll', listener, { passive: true });
       return () => element.removeEventListener('scroll', listener);
+    },
+    onSelectionChange: (listener: (selection: EditorSelectionRange) => void) => {
+      const host = scrollHost();
+      const document = host.ownerDocument;
+      const handleSelectionChange = () => {
+        const selection = document.getSelection();
+        if (!selection?.anchorNode || !host.contains(selection.anchorNode)) return;
+        const { from, to } = selectionRange();
+        listener({ from, to, empty: from === to });
+      };
+      document.addEventListener('selectionchange', handleSelectionChange);
+      return () => document.removeEventListener('selectionchange', handleSelectionChange);
     },
     state: {
       get selection() {

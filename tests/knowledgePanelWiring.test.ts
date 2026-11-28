@@ -30,7 +30,7 @@ test('面板提供六个 tab、工作区根目录、状态与窄屏滚动导航'
 });
 
 test('所有知识组件复用 AppIcon 与主题 token，样式仅在 knowledge.css', () => {
-  const files = ['KnowledgePanel', 'KnowledgeTabs', 'KnowledgeStates', 'DatabaseView', 'TasksView', 'CalendarView', 'GraphView', 'PropertiesView', 'MigrationView'];
+  const files = ['KnowledgePanel', 'KnowledgeTabs', 'KnowledgeStates', 'KnowledgeSetup', 'KnowledgeSummary', 'KnowledgeSearch', 'KnowledgeQuickNote', 'DatabaseView', 'TasksView', 'CalendarView', 'GraphView', 'PropertiesView', 'MigrationView'];
   const combined = files.map(source).join('\n');
   assert.match(combined, /AppIcon/);
   const css = readFileSync('src/styles/knowledge.css', 'utf8');
@@ -48,7 +48,9 @@ test('每个知识 UI 组件不超过 200 行', () => {
 
 test('数据库支持筛选、表格、board 与 JSON Blob 导出', () => {
   const database = source('DatabaseView');
-  assert.match(database, /knowledgeIndexService\.query/);
+  assert.match(database, /knowledgeIndexService\.all/);
+  assert.match(database, /favoritesOnly/);
+  assert.match(database, /toggleFavorite/);
   assert.match(database, /status/);
   assert.match(database, /table/);
   assert.match(database, /board/);

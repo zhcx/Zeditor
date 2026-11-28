@@ -786,7 +786,8 @@ function App() {
   useEffect(() => {
     if (mode === 'split' || mode === 'wysiwyg' || mode === 'source') return;
     const exitImmersiveWorkspace = (event: KeyboardEvent) => {
-      if (event.key !== 'Escape') return;
+      if (event.key !== 'Escape' || event.isComposing || event.defaultPrevented) return;
+      if (document.querySelector('[role="dialog"], [role="alertdialog"], .settings-overlay, .modal-overlay')) return;
       const store = useAppStore.getState();
       store.setMode(store.settings.editor.mode ?? 'split');
     };

@@ -3,16 +3,6 @@
   --ui-font-scale: 1;
   --ui-font-base-size: 13px;
   --text-letter-spacing: .6px;
-  --ui-font-size-xs: calc(11px * var(--ui-font-scale));
-  --ui-font-size-sm: calc(12px * var(--ui-font-scale));
-  --ui-font-size-md: var(--ui-font-base-size);
-  --ui-font-size-lg: calc(14px * var(--ui-font-scale));
-  --ui-titlebar-height: calc(40px * var(--ui-font-scale));
-  --ui-tab-height: calc(40px * var(--ui-font-scale));
-  --ui-statusbar-height: calc(30px * var(--ui-font-scale));
-  --ui-sidebar-header-height: calc(44px * var(--ui-font-scale));
-  --ui-tree-row-height: calc(22px * var(--ui-font-scale));
-  --ui-control-height-md: calc(30px * var(--ui-font-scale));
 }
 .app, .document-switcher, .encoding-dialog { letter-spacing: var(--text-letter-spacing); }
 .monaco-editor { letter-spacing: normal; }
@@ -29,7 +19,7 @@
 .titlebar .titlebar-command-center { height: calc(29px * var(--ui-font-scale)); }
 .vscode-explorer .open-editor-row { min-height: calc(24px * var(--ui-font-scale)); }
 .vscode-explorer .explorer-section-heading { min-height: calc(24px * var(--ui-font-scale)); }
-.activity-bar-button { height: calc(40px * var(--ui-font-scale)); }
+.activity-bar-button { height: calc(38px * var(--ui-font-scale)); }
 .editor-pane-toolbar .toolbar, .preview-toolbar-offset { min-height: calc(44px * var(--ui-font-scale)); height: calc(44px * var(--ui-font-scale)); flex-basis: calc(44px * var(--ui-font-scale)); }
 .editor-pane-toolbar .toolbar-btn, .toolbar-floating .toolbar-btn { height: calc(32px * var(--ui-font-scale)); min-height: calc(32px * var(--ui-font-scale)); }
 .editor-pane-toolbar .toolbar-item, .toolbar-floating .toolbar-item { height: calc(34px * var(--ui-font-scale)); }
