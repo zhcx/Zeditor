@@ -25,7 +25,7 @@ export default defineConfig({
   description: '现代化的 Markdown 编辑器 —— 实时预览、AI 辅助写作、文档转换、多种导出与云备份',
   base: BASE,
   srcDir: '.',
-  srcExclude: ['banner.png', '**/releases/**'],
+  srcExclude: ['banner.png', '**/releases/**', 'handoff-*.md', 'ui-upgrade-report-*.md'],
   lastUpdated: true,
 
   head: [

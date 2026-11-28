@@ -1,5 +1,31 @@
 # 更新日志
 
+## v0.7.1（2026-11-28）
+
+### Textus 写作工作流
+
+- 新增 AI Ghost Text 伴写，按 `Tab` 接受；文档、光标或修订变化后建议自动失效。
+- AI 修改按 hunk 逐块接受 / 拒绝，接受前不写正文，一次接受对应一次撤销。
+- 新增选区批注、定位、解决 / 重新打开、删除与 JSON 导出。
+- 新增双文档左右 / 上下分栏，独立保存；macOS 原生菜单命令跟随当前聚焦编辑器。
+
+### 本地历史与知识管理
+
+- 新增耐久本地版本库，保留原始编码，支持预览、对比、恢复与删除。
+- 新增元数据索引、Wiki 自动补全、未链接提及和增量反向链接。
+- 新增 Frontmatter 属性、Database 表格 / 看板、跨文档任务、日历与 SVG 关系图。
+- 支持 Obsidian vault 分析、Notion HTML 导入和 Typora CSS 校验。
+
+### 项目 AI、MCP 与 macOS
+
+- 新增项目文风、写作要求、资料库、技能和记忆上下文，发送前脱敏敏感信息。
+- 新增声明式安全插件 MVP，拒绝任意 JS、远程入口和未授权权限。
+- MCP 新增 Pi、DeepSeek Harness、WorkBuddy、Qoder / Qoder CN 与通用 Harness。
+- MCP sidecar 自动构建并随包发布，连接自检持续排空 stderr。
+- 修复 macOS 分栏布局、原生菜单焦点路由、Monaco model 释放和临时目录符号链接误判。
+
+完整发布说明及平台安装包对照见 [`docs/releases/v0.7.1.md`](docs/releases/v0.7.1.md)。
+
 ## v0.7.0（2026-11-21）
 
 ### 编辑器与选区

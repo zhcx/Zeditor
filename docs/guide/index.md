@@ -18,6 +18,9 @@ title: 简介
 | 能力 | 说明 | 了解更多 |
 | --- | --- | --- |
 | 沉浸编辑 | Monaco 编辑器、智能 Tab 导航、斜杠命令、表格工具栏、内联弹窗 | [编辑与格式](/guide/editing) |
+| AI 写作与审阅 | Ghost Text 伴写、逐块修改审阅、选区批注与 JSON 导出 | [使用教程](/usage-guide#20-写作与知识工作流v071) |
+| 本地版本与知识 | 耐久历史、Wiki 补全、反向链接、Frontmatter、Database、任务、日历与关系图 | [文件与工作区](/guide/files) |
+| 双文档分栏 | 左右 / 上下独立编辑与保存，原生菜单跟随焦点 | [使用教程](/usage-guide#20-写作与知识工作流v071) |
 | 数据保护与恢复 | 异常退出找回草稿、检测外部修改冲突、系统回收站与 Zeditor 恢复区 | [文件与工作区](/guide/files) |
 | 强大渲染 | KaTeX 公式、Mermaid 图表、Markmap 思维导图、工作流查看器 | [Mermaid 图表](/guide/mermaid) |
 | AI 辅助 | 13 家服务商对话、指令面板、校对、联网搜索 | [AI 助手](/guide/ai/) |

@@ -82,6 +82,10 @@
 - **快速访问** - 侧栏「快速访问」区，文件 / 文件夹右键置顶，一键打开
 - **富文本复制** - 功能菜单「复制为富文本」把 Markdown 渲染为内联样式 HTML，可直接粘贴到 Word、笔记应用
 - **标题编号与链接预览** - 预览按 `1 / 1.1 / 1.1.1` 自动编号（不改源码）；悬停外链显示域名、本地笔记显示标题与摘要
+- **AI 伴写与修改审阅** - 光标处显示 Ghost Text，`Tab` 接受；AI 修改按块接受 / 拒绝，支持选区批注、定位与 JSON 导出
+- **双文档分栏** - 左右 / 上下同时编辑两篇文档，独立保存，原生菜单命令跟随当前聚焦编辑器
+- **本地版本库** - 耐久保存文档历史，支持预览、逐行对比、恢复与删除，无需依赖 Git
+- **知识管理** - Wiki 自动补全、未链接提及、反向链接、Frontmatter 属性、跨文档任务、Database 表格 / 看板、日历与 SVG 关系图
 
 ### 🎨 渲染能力
 - **数学公式** - KaTeX 渲染，支持行内与块级公式
@@ -136,6 +140,8 @@ Zeditor 支持将 **DOC、DOCX、PPT、PPTX、XLS、XLSX、ODF、RTF、EPUB、CS
 - **本地 Agent（Beta）** — 在同一面板调用 Claude Code、Codex、OpenCode 或 Pi，支持流式任务、命令审批和会话恢复
 - **隔离变更审阅** — Git 仓库任务在临时 worktree 中工作，完成后可按文件应用，不覆盖当前未提交修改
 - **MCP 集成** — 让 Claude Desktop / Claude Code / Codex CLI / Gemini CLI / Pi Agent / DeepSeek Harness / WorkBuddy / Qoder 等 AI 助手通过 MCP 协议直接读写你正在编辑的文档，详见 [MCP 集成完整指南](docs/mcp-support.md)
+- **项目 AI 上下文** — 项目文风、写作要求、资料库、技能与记忆随工作区加载，发送前脱敏 API Key、Token 与 URL 凭据
+- **安全插件 MVP** — 支持声明式命令、斜杠命令与纯文本面板，拒绝任意 JS、远程入口和未授权文件 / 网络权限
 
 ### 🤖 AI 服务商支持
 
@@ -186,32 +192,34 @@ Agent 默认关闭，需要先在“设置 → AI 助手”中启用。Zeditor �
 
 ## 🚀 快速开始
 
-## v0.7.0 更新
+## v0.7.1 更新
 
 ### 更新日志
 
-- **右键菜单与选区**：所见即所得在表格/段落内右键时选区不再被折叠，剪切、复制、粘贴、格式等菜单恢复可用；源码对照的 Monaco 主题颜色归一化为 `#rrggbb[aa]`，选区恢复蓝色；预览内有选区时点击不再跳转源码行、清空选区。
-- **macOS 剪贴板**：新增统一剪贴板层（Clipboard API → `execCommand` → 原生 `pbpaste`/`Get-Clipboard`/`wl-paste`），修复 WKWebView 下「复制为 HTML」「复制」「剪切」静默失败；剪切仅在写入成功后删除原文。
-- **粘贴为纯文本**：「粘贴为纯文本」独立实现（此前与普通粘贴相同），源码模式插入原文、所见即所得按块/表格转义后插入；读不到剪贴板时提示改用 `⌘V`。
-- **原生兜底**：新增 `read_clipboard_text` 原生命令；所见即所得块定位支持 `caretPositionFromPoint`；设置面板与块源码编辑器的快捷键提示按平台格式化（macOS 显示 `⌥⌘M`、`⌘Enter`）。
+- **Textus 写作工作流**：新增 AI 伴写 Ghost Text（`Tab` 接受）、逐块修改建议（接受 / 拒绝，一次接受对应一次撤销）、选区批注与定位、审阅面板和 JSON 导出。
+- **本地历史与知识网络**：新增耐久本地版本库、元数据索引、Wiki 自动补全、未链接提及、反向链接、跨文档任务、Frontmatter 属性、Database 表格 / 看板、日历与 SVG 关系图。
+- **双文档分栏**：同一工作区可左右 / 上下同时编辑两篇文档，独立保存；macOS 原生菜单的保存、另存为、撤销和重做跟随当前聚焦编辑器。
+- **项目 AI 上下文与安全插件**：支持项目文风、写作要求、资料库、技能和记忆上下文；敏感信息自动脱敏；新增声明式安全插件 MVP，拒绝任意 JS、远程入口及未授权文件 / 网络权限。
+- **MCP 集成扩展**：支持 Pi、DeepSeek Harness、WorkBuddy、Qoder / Qoder CN 与通用 Harness；MCP sidecar 自动构建并随安装包发布，连接自检持续排空 stderr，避免日志阻塞握手。
+- **macOS 加固**：修复分栏源码 / 预览布局、原生菜单焦点路由和临时目录符号链接误判；完善窗口、剪贴板、快捷键与打包兼容性。
 
-### v0.7.0 平台安装包对照
+### v0.7.1 平台安装包对照
 
-> 以下链接指向 v0.7.0 Release 资产，由 GitHub Actions 依据 `v0.7.0` 标签源码构建。Windows 安装包未签名，首次运行可能出现 SmartScreen 提示；macOS 安装包未签名、未公证，首次打开需右键「打开」放行；Linux AppImage 需要 WebKitGTK 4.1。
+> 以下链接指向 v0.7.1 Release 资产，由 GitHub Actions 依据 `v0.7.1` 标签源码构建。Windows 安装包未签名，首次运行可能出现 SmartScreen 提示；macOS 安装包未签名、未公证，首次打开需右键「打开」放行；Linux AppImage 需要 WebKitGTK 4.1。
 
 | 操作系统 | 架构 | 最低系统版本 | 推荐安装包 | 适用场景 |
 | --- | --- | --- | --- | --- |
-| Windows | x86_64 | Windows 10 1809+ | [NSIS `.exe`](https://github.com/zhcx/zeditor/releases/download/v0.7.0/Zeditor_0.7.0_x64-setup.exe) | 推荐大多数用户使用，按向导安装 |
-| Windows | x86_64 | Windows 10 1809+ | [MSI](https://github.com/zhcx/zeditor/releases/download/v0.7.0/Zeditor_0.7.0_x64_en-US.msi) | 企业部署、系统管理或静默安装 |
-| macOS Apple Silicon | arm64 | macOS 12+ | [DMG](https://github.com/zhcx/zeditor/releases/download/v0.7.0/Zeditor_0.7.0_aarch64.dmg) | M1、M2、M3、M4 等 Apple 芯片 |
-| macOS Apple Silicon | arm64 | macOS 12+ | [APP 压缩包](https://github.com/zhcx/zeditor/releases/download/v0.7.0/Zeditor_aarch64.app.tar.gz) | 手动解压或更新 |
-| macOS Intel | x86_64 | macOS 12+ | [DMG](https://github.com/zhcx/zeditor/releases/download/v0.7.0/Zeditor_0.7.0_x64.dmg) | Intel 芯片 Mac |
-| macOS Intel | x86_64 | macOS 12+ | [APP 压缩包](https://github.com/zhcx/zeditor/releases/download/v0.7.0/Zeditor_x64.app.tar.gz) | 手动解压或更新 |
-| Ubuntu / Debian | x86_64 | Ubuntu 20.04+ / Debian 11+ | [DEB](https://github.com/zhcx/zeditor/releases/download/v0.7.0/Zeditor_0.7.0_amd64.deb) | Ubuntu、Debian、Linux Mint 等 |
-| Fedora / RHEL / openSUSE | x86_64 | Fedora 38+ / RHEL 9+ | [RPM](https://github.com/zhcx/zeditor/releases/download/v0.7.0/Zeditor-0.7.0-1.x86_64.rpm) | RPM 系发行版 |
-| 通用 Linux | x86_64 | 需 webkit2gtk-4.1 | [AppImage](https://github.com/zhcx/zeditor/releases/download/v0.7.0/Zeditor_0.7.0_amd64.AppImage) | 无需安装，赋予执行权限后运行 |
+| Windows | x86_64 | Windows 10 1809+ | [NSIS `.exe`](https://github.com/zhcx/zeditor/releases/download/v0.7.1/Zeditor_0.7.1_x64-setup.exe) | 推荐大多数用户使用，按向导安装 |
+| Windows | x86_64 | Windows 10 1809+ | [MSI](https://github.com/zhcx/zeditor/releases/download/v0.7.1/Zeditor_0.7.1_x64_en-US.msi) | 企业部署、系统管理或静默安装 |
+| macOS Apple Silicon | arm64 | macOS 12+ | [DMG](https://github.com/zhcx/zeditor/releases/download/v0.7.1/Zeditor_0.7.1_aarch64.dmg) | M1、M2、M3、M4 等 Apple 芯片 |
+| macOS Apple Silicon | arm64 | macOS 12+ | [APP 压缩包](https://github.com/zhcx/zeditor/releases/download/v0.7.1/Zeditor_aarch64.app.tar.gz) | 手动解压或更新 |
+| macOS Intel | x86_64 | macOS 12+ | [DMG](https://github.com/zhcx/zeditor/releases/download/v0.7.1/Zeditor_0.7.1_x64.dmg) | Intel 芯片 Mac |
+| macOS Intel | x86_64 | macOS 12+ | [APP 压缩包](https://github.com/zhcx/zeditor/releases/download/v0.7.1/Zeditor_x64.app.tar.gz) | 手动解压或更新 |
+| Ubuntu / Debian | x86_64 | Ubuntu 20.04+ / Debian 11+ | [DEB](https://github.com/zhcx/zeditor/releases/download/v0.7.1/Zeditor_0.7.1_amd64.deb) | Ubuntu、Debian、Linux Mint 等 |
+| Fedora / RHEL / openSUSE | x86_64 | Fedora 38+ / RHEL 9+ | [RPM](https://github.com/zhcx/zeditor/releases/download/v0.7.1/Zeditor-0.7.1-1.x86_64.rpm) | RPM 系发行版 |
+| 通用 Linux | x86_64 | 需 webkit2gtk-4.1 | [AppImage](https://github.com/zhcx/zeditor/releases/download/v0.7.1/Zeditor_0.7.1_amd64.AppImage) | 无需安装，赋予执行权限后运行 |
 
-完整更新说明见 [`docs/releases/v0.7.0.md`](docs/releases/v0.7.0.md)；转换模块的在线安装与离线导入见[文档转换指南](docs/guide/converter.md)。
+完整更新说明见 [`docs/releases/v0.7.1.md`](docs/releases/v0.7.1.md)；转换模块的在线安装与离线导入见[文档转换指南](docs/guide/converter.md)。
 
 ## Contributors
 

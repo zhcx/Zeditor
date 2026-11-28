@@ -4,7 +4,7 @@ layout: home
 hero:
   name: Zeditor
   text: 现代化的 Markdown 编辑器
-  tagline: 所见即所得 · 实时预览 · AI 辅助写作 · 文档转换 · 多格式导出 · 云备份
+  tagline: 所见即所得 · AI 伴写与审阅 · 知识管理 · 双文档分栏 · 文档转换 · 云备份
   actions:
     - theme: brand
       text: 快速上手
@@ -22,6 +22,21 @@ features:
     details: 四种工作区模式：直接在排版结果上写作、源码对照实时预览、沉浸阅读与沉浸写作；行宽按比例可调（Ctrl+滚轮），标题与列表可折叠，缩进参考线让层级一目了然。
     link: /guide/view-modes
     linkText: 了解视图模式
+  - icon: ✍️
+    title: AI 伴写与修改审阅
+    details: Ghost Text 按 Tab 接受，AI 修改逐块接受或拒绝；选区批注可定位、解决并导出，接受前不修改正文。
+    link: /usage-guide#20-写作与知识工作流v071
+    linkText: 了解写作工作流
+  - icon: 🗂️
+    title: 本地版本与知识管理
+    details: 耐久本地历史、Wiki 自动补全、反向链接、Frontmatter、Database 表格 / 看板、任务、日历与 SVG 关系图。
+    link: /guide/files
+    linkText: 了解文件与知识
+  - icon: 🧭
+    title: 双文档分栏
+    details: 左右或上下同时编辑两篇文档，独立保存；macOS 原生菜单命令跟随当前聚焦编辑器。
+    link: /usage-guide#20-写作与知识工作流v071
+    linkText: 了解分栏编辑
   - icon: 🔗
     title: 双向链接与脚注
     details: 用 [[笔记]]、[[笔记#标题]] 在笔记间跳转，侧栏反向链接列出所有引用；脚注 [^1] 悬停即看定义，正文不用来回滚动。

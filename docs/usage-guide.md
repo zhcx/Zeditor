@@ -1,6 +1,6 @@
 # Zeditor 使用教程
 
-> 本教程已同步到 **Zeditor v0.6.5**，覆盖新增的双向链接与反向链接、脚注悬停预览、按比例限制行宽、折叠标题 / 折叠缩进与缩进参考线，以及 macOS 原生菜单、系统快捷键与输入性能方面的改进。
+> 本教程已同步到 **Zeditor v0.7.1**，覆盖 Textus AI 伴写与修改审阅、选区批注、本地版本库、知识索引与管理视图、双文档分栏、项目 AI 上下文、安全插件、扩展 MCP 客户端以及 macOS 原生菜单与打包加固。
 > Zeditor 是一款基于 Tauri 2.0 + React + Monaco Editor 构建的现代化 Markdown 编辑器，支持实时预览、AI 辅助写作、文档转换、多种导出与云备份。
 
 ---
@@ -26,7 +26,8 @@
 17. [设置面板详解](#17-设置面板详解)
 18. [自动更新](#18-自动更新)
 19. [快捷键速查表](#19-快捷键速查表)
-20. [常见问题与故障排除](#20-常见问题与故障排除)
+20. [写作与知识工作流（v0.7.1）](#20-写作与知识工作流v071)
+21. [常见问题与故障排除](#21-常见问题与故障排除)
 
 ---
 
@@ -38,15 +39,15 @@
 
 | 操作系统 | 架构 | 最低系统版本 | 推荐安装包 | 适用场景 |
 | --- | --- | --- | --- | --- |
-| Windows | x86_64 | Windows 10 1809+ | NSIS `.exe` | 大多数用户，按向导安装 |
-| Windows | x86_64 | Windows 10 1809+ | MSI | 企业部署、静默安装 |
-| macOS Apple Silicon | arm64 | macOS 12+ | DMG（另附 `.app.tar.gz` 更新包） | M1 / M2 / M3 / M4 芯片 |
-| macOS Intel | x86_64 | macOS 12+ | DMG（另附 `.app.tar.gz` 更新包） | Intel 芯片 Mac |
-| Ubuntu / Debian | x86_64 | Ubuntu 20.04+ / Debian 11+ | DEB | Ubuntu、Debian、Mint 等 Debian 系 |
-| Fedora / RHEL / openSUSE | x86_64 | Fedora 38+ / RHEL 9+ | RPM | RPM 系发行版 |
-| 通用 Linux | x86_64 | 需 WebKitGTK 4.1 | AppImage | 免安装，`chmod +x` 后直接运行 |
+| Windows | x86_64 | Windows 10 1809+ | [NSIS `.exe`](https://github.com/zhcx/zeditor/releases/download/v0.7.1/Zeditor_0.7.1_x64-setup.exe) | 大多数用户，按向导安装 |
+| Windows | x86_64 | Windows 10 1809+ | [MSI](https://github.com/zhcx/zeditor/releases/download/v0.7.1/Zeditor_0.7.1_x64_en-US.msi) | 企业部署、静默安装 |
+| macOS Apple Silicon | arm64 | macOS 12+ | [DMG](https://github.com/zhcx/zeditor/releases/download/v0.7.1/Zeditor_0.7.1_aarch64.dmg)（另附 `.app.tar.gz` 更新包） | M1 / M2 / M3 / M4 芯片 |
+| macOS Intel | x86_64 | macOS 12+ | [DMG](https://github.com/zhcx/zeditor/releases/download/v0.7.1/Zeditor_0.7.1_x64.dmg)（另附 `.app.tar.gz` 更新包） | Intel 芯片 Mac |
+| Ubuntu / Debian | x86_64 | Ubuntu 20.04+ / Debian 11+ | [DEB](https://github.com/zhcx/zeditor/releases/download/v0.7.1/Zeditor_0.7.1_amd64.deb) | Ubuntu、Debian、Mint 等 Debian 系 |
+| Fedora / RHEL / openSUSE | x86_64 | Fedora 38+ / RHEL 9+ | [RPM](https://github.com/zhcx/zeditor/releases/download/v0.7.1/Zeditor-0.7.1-1.x86_64.rpm) | RPM 系发行版 |
+| 通用 Linux | x86_64 | 需 WebKitGTK 4.1 | [AppImage](https://github.com/zhcx/zeditor/releases/download/v0.7.1/Zeditor_0.7.1_amd64.AppImage) | 免安装，`chmod +x` 后直接运行 |
 
-> v0.6.5 的安装包由 GitHub Actions 依据 `v0.6.5` 标签源码构建，可从 [v0.6.5 Release](https://github.com/zhcx/zeditor/releases/tag/v0.6.5) 下载。
+> v0.7.1 的安装包由 GitHub Actions 依据 `v0.7.1` 标签源码构建，可从 [v0.7.1 Release](https://github.com/zhcx/zeditor/releases/tag/v0.7.1) 下载。
 >
 > Windows 安装包可能触发 SmartScreen 警告（尚未代码签名），点击「更多信息 → 仍要运行」即可。
 >
@@ -62,7 +63,7 @@ npm run tauri dev    # 开发模式
 npm run tauri build  # 构建发布版
 ```
 
-环境要求：Node.js ≥ 22.6、Rust ≥ 1.85。
+环境要求：Node.js ≥ 22.12、Rust stable。
 
 ---
 
@@ -71,8 +72,8 @@ npm run tauri build  # 构建发布版
 启动后界面自上而下、自左而右依次为：
 
 - **菜单栏**：macOS 使用系统菜单栏（**Zeditor / 文件 / 编辑 / 功能 / 窗口 / 帮助**），窗口内不再重复显示菜单；Windows 与 Linux 在窗口顶部显示 **Zeditor**（应用菜单）、**文件**、**功能** 三个菜单，编辑与视图类功能统一收在「功能」菜单中。
-- **活动栏（最左竖条）**：切换侧边栏的「资源管理器 / 搜索当前文档」两个视图，以及「沉浸模式」按钮。
-- **侧边栏**：资源管理器（打开的编辑器、工作区、大纲、近期记录、时间线五个可折叠分组）或「搜索当前文档」查找替换面板。
+- **活动栏（最左竖条）**：切换资源管理器、搜索、审阅与批注、本地版本历史、知识管理等视图，并排沉浸模式与 AI 入口。
+- **侧边栏**：资源管理器（打开的编辑器、工作区、大纲、反向链接、近期记录、时间线等分组）、搜索面板、审阅面板、本地历史或知识管理视图。
 - **标签栏**：多标签页管理，`+` 新建，双击空白处新建。
 - **工具栏**：文字标签按钮分三组（格式 / 编辑 / 插入），空间不足时溢出按钮收进「•••」菜单。
 - **编辑器 + 预览**：按所选工作区模式显示——「所见即所得」为单栏排版编辑，「源码对照」为左右分屏（可拖动分隔条调整宽度、双向同步滚动）。
@@ -457,13 +458,15 @@ npm run tauri build  # 构建发布版
 
 ## 13. MCP 集成
 
-Zeditor 内置 MCP 服务器，让 **Claude Desktop、Claude Code、Codex CLI、Gemini CLI** 等 AI 助手通过 MCP 协议直接读写你正在编辑的文档。
+Zeditor 内置 MCP 服务器，让 **Claude Desktop、Claude Code、Codex CLI、Gemini CLI、Pi Agent、DeepSeek Harness、WorkBuddy、Qoder / Qoder CN** 等 AI 助手通过 MCP 协议直接读写你正在编辑的文档。
 
 ### 13.1 三步启用
 
 1. **设置 → 集成**，开启「**启用 MCP 服务器**」（可同时开「启动时自动运行」）。
-2. 在「AI 助手配置」区对所用客户端点「**安装**」，状态显示 ✓ 已安装（配置写入各客户端的配置文件：Claude Desktop 的 `claude_desktop_config.json`、Claude Code 的 `~/.claude.json`、Codex CLI 的 `config.toml`、Gemini CLI 的 `settings.json`）。
-3. **完全退出并重启该 AI 助手**。
+2. 点击「**测试 MCP 连接**」，确认 sidecar 完成 `initialize` 与 `tools/list` 握手。
+3. 在「AI 助手配置」区搜索所用客户端并点「**安装**」或「**复制配置**」，状态显示 ✓ 已安装；完全退出并重启该 AI 助手。
+
+设置页会保留原配置中的其他服务，写入前自动生成 `*.zeditor-backup`；JSON 损坏时拒绝覆盖。v0.7.1 起 MCP sidecar 会随应用安装包一起发布，无需单独构建。
 
 之后即可对助手说：「读取我当前在 Zeditor 里打开的文档，总结要点」「把选中的段落改得更简洁，然后保存」「列出我打开的标签页」。
 
@@ -628,7 +631,36 @@ WebDAV 与 S3 自动备份，见[第 16 章](#16-云备份webdav--s3)。
 
 ---
 
-## 20. 常见问题与故障排除
+## 20. 写作与知识工作流（v0.7.1）
+
+### 20.1 AI 伴写与修改审阅
+
+- 在 **设置 → AI 助手** 开启自动伴写建议，写作停顿后会在光标处显示 Ghost Text；按 `Tab` 接受，按 `Esc` 忽略。
+- AI 改写结果按块显示差异，可逐块「接受」或「拒绝」；接受前不会修改正文，每次接受保留一次撤销记录。
+- 选中文字后可添加批注，在「审阅与批注」面板中定位、解决、重新打开或删除，并可导出 JSON。
+- 所见即所得与源码编辑共用同一套审阅逻辑；外部 MCP 客户端调用 `selection_set` 时默认进入审阅。
+
+### 20.2 双文档分栏
+
+1. 同时打开至少两篇文档。
+2. 在活动栏或功能菜单启用「双文档分栏」，从工具栏选择另一篇文档。
+3. 可切换左右 / 上下方向，拖动分隔条或聚焦分隔条后使用方向键调整比例。
+4. 两篇文档独立编辑、独立保存；点击哪一栏，macOS 原生菜单的保存、另存为、撤销和重做就作用于哪一篇。
+
+### 20.3 本地版本与知识索引
+
+- **本地版本历史**：活动栏打开「本地版本历史」，可预览、与当前版本对比、恢复或删除记录；历史保留原始编码，不依赖 Git。
+- **知识管理**：活动栏打开「知识管理」，可查看关系图、Database 表格 / 看板、跨文档任务、日历和 Frontmatter 属性。
+- **Wiki 与反向链接**：输入 `[[` 可自动补全笔记；未链接提及帮助发现尚未建立引用的相关文档。
+- **项目上下文**：打开工作区后，在设置中配置项目文风、写作要求、资料库、技能和记忆；切换工作区会清空，避免上下文串用。
+
+### 20.4 安全插件
+
+设置中的「安全插件」支持导入声明式插件清单，可贡献命令、斜杠命令和纯文本面板。插件不能执行任意 JavaScript、加载远程入口，也不能访问未声明的文件系统和网络权限。
+
+---
+
+## 21. 常见问题与故障排除
 
 | 问题 | 原因 | 解决方法 |
 | --- | --- | --- |
@@ -649,4 +681,4 @@ WebDAV 与 S3 自动备份，见[第 16 章](#16-云备份webdav--s3)。
 
 ---
 
-*本教程对应 Zeditor v0.6.5。若软件更新后界面有变化，请以应用内「快捷键说明」「Markdown 语法」弹窗与 [官方 README](https://github.com/zhcx/zeditor) 为准。*
+*本教程对应 Zeditor v0.7.1。若软件更新后界面有变化，请以应用内「快捷键说明」「Markdown 语法」弹窗与 [官方 README](https://github.com/zhcx/zeditor) 为准。*

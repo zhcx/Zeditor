@@ -8,17 +8,19 @@ Zeditor 是一款本地优先的 Markdown 编辑器：安装即用、无需登�
 
 ## 下载与安装
 
-从 [GitHub Releases](https://github.com/zhcx/zeditor/releases/latest) 下载对应平台的安装包：
+从 [GitHub Releases](https://github.com/zhcx/zeditor/releases/latest) 下载对应平台的安装包。当前 v0.7.1 提供 Windows x64、macOS Apple Silicon / Intel 与 Linux x64 安装包，所有资产由 GitHub Actions 依据 `v0.7.1` 标签源码构建：
 
 | 操作系统 | 推荐安装包 | 适用场景 |
 | --- | --- | --- |
-| Windows x86_64（Win10 1809+） | NSIS `.exe` | 大多数用户，按向导安装 |
-| Windows x86_64 | MSI | 企业部署、静默安装 |
-| macOS Apple Silicon（macOS 12+） | `aarch64.dmg` | M1 / M2 / M3 / M4 芯片 |
-| macOS Intel（macOS 12+） | `x64.dmg` | Intel 芯片 Mac |
-| Ubuntu / Debian | DEB | Ubuntu 20.04+、Debian 11+ 等 |
-| Fedora / RHEL / openSUSE | RPM | RPM 系发行版 |
-| 通用 Linux | AppImage | 免安装，`chmod +x` 后直接运行 |
+| Windows x86_64（Win10 1809+） | [NSIS `.exe`](https://github.com/zhcx/zeditor/releases/download/v0.7.1/Zeditor_0.7.1_x64-setup.exe) | 大多数用户，按向导安装 |
+| Windows x86_64 | [MSI](https://github.com/zhcx/zeditor/releases/download/v0.7.1/Zeditor_0.7.1_x64_en-US.msi) | 企业部署、静默安装 |
+| macOS Apple Silicon（macOS 12+） | [DMG](https://github.com/zhcx/zeditor/releases/download/v0.7.1/Zeditor_0.7.1_aarch64.dmg) | M1 / M2 / M3 / M4 芯片 |
+| macOS Intel（macOS 12+） | [DMG](https://github.com/zhcx/zeditor/releases/download/v0.7.1/Zeditor_0.7.1_x64.dmg) | Intel 芯片 Mac |
+| Ubuntu / Debian | [DEB](https://github.com/zhcx/zeditor/releases/download/v0.7.1/Zeditor_0.7.1_amd64.deb) | Ubuntu 20.04+、Debian 11+ 等 |
+| Fedora / RHEL / openSUSE | [RPM](https://github.com/zhcx/zeditor/releases/download/v0.7.1/Zeditor-0.7.1-1.x86_64.rpm) | RPM 系发行版 |
+| 通用 Linux | [AppImage](https://github.com/zhcx/zeditor/releases/download/v0.7.1/Zeditor_0.7.1_amd64.AppImage) | 免安装，`chmod +x` 后直接运行 |
+
+完整平台对照与 macOS `.app.tar.gz` 更新包见 [v0.7.1 发布说明](https://github.com/zhcx/zeditor/releases/tag/v0.7.1)。
 
 ::: tip SmartScreen 提示
 Windows 安装包尚未进行 Authenticode 代码签名，首次运行可能触发 SmartScreen 警告，点击「更多信息 → 仍要运行」即可。

@@ -3,6 +3,7 @@ import { existsSync, readFileSync } from 'node:fs'
 import { test } from 'node:test'
 
 const read = (path: string) => readFileSync(path, 'utf8')
+const packageVersion = () => JSON.parse(read('package.json')).version as string
 
 test('application and converter version sources stay synchronized', () => {
   const packageJson = JSON.parse(read('package.json'))
@@ -12,13 +13,41 @@ test('application and converter version sources stay synchronized', () => {
   const converterResourceVersion = read('src-tauri/resources/converter_version.txt').trim()
 
   assert.equal(packageJson.name, 'zeditor')
-  assert.equal(packageJson.version, '0.7.0')
+  assert.equal(packageJson.version, '0.7.1')
   assert.equal(tauriConfig.version, packageJson.version)
   assert.equal(tauriConfig.productName, 'Zeditor')
   assert.equal(tauriConfig.identifier, 'com.zeditor.desktop')
   assert.equal(cargoVersion, packageJson.version)
   assert.equal(converterProjectVersion, '1.3.0')
   assert.equal(converterResourceVersion, converterProjectVersion)
+})
+
+test('release documentation and platform matrix stay synchronized', () => {
+  const version = packageVersion()
+  const readme = read('README.md')
+  const release = read(`docs/releases/v${version}.md`)
+  const usage = read('docs/usage-guide.md')
+  const gettingStarted = read('docs/guide/getting-started.md')
+  const assets = [
+    `Zeditor_${version}_x64-setup.exe`,
+    `Zeditor_${version}_x64_en-US.msi`,
+    `Zeditor_${version}_aarch64.dmg`,
+    'Zeditor_aarch64.app.tar.gz',
+    `Zeditor_${version}_x64.dmg`,
+    'Zeditor_x64.app.tar.gz',
+    `Zeditor_${version}_amd64.deb`,
+    `Zeditor-${version}-1.x86_64.rpm`,
+    `Zeditor_${version}_amd64.AppImage`,
+  ]
+  for (const document of [readme, release]) {
+    assert.ok(document.includes(`v${version} 更新`) || document.includes(`# Zeditor v${version}`))
+    for (const asset of assets) {
+      assert.ok(document.includes(`releases/download/v${version}/${asset}`), `${asset} missing from release matrix`)
+    }
+  }
+  assert.ok(usage.includes(`Zeditor v${version}`))
+  assert.ok(gettingStarted.includes(`releases/download/v${version}/`))
+  assert.ok(read('CHANGELOG.md').includes(`## v${version}`))
 })
 
 test('repository publishes an actual MIT license and privacy policy', () => {
