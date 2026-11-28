@@ -1,0 +1,80 @@
+name: WiX Probe
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-2022, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - name: Environment facts
+        shell: pwsh
+        run: |
+          $os = Get-CimInstance Win32_OperatingSystem
+          Write-Host "OS: $($os.Caption) $($os.Version) build $($os.BuildNumber)"
+          Write-Host "PS: $($PSVersionTable.PSVersion)"
+          Get-Service msiserver | Format-List Name, Status, StartType
+          Get-ItemProperty 'HKLM:\SOFTWARE\Microsoft\Windows Script Host\Settings' -ErrorAction SilentlyContinue | Format-List
+          Get-ItemProperty 'HKLM:\SOFTWARE\WOW6432Node\Microsoft\Windows Script Host\Settings' -ErrorAction SilentlyContinue | Format-List
+          foreach ($exe in @("$env:SystemRoot\System32\cscript.exe", "$env:SystemRoot\SysWOW64\cscript.exe")) {
+            if (Test-Path $exe) {
+              $probe = Join-Path $env:RUNNER_TEMP 'probe.vbs'
+              Set-Content -LiteralPath $probe -Value 'WScript.Echo "ok"' -Encoding ascii
+              $out = & $exe //nologo //E:vbscript $probe 2>&1
+              Write-Host "$exe exit=$LASTEXITCODE output=[$out]"
+            } else {
+              Write-Host "$exe missing"
+            }
+          }
+          Get-ChildItem 'C:\Windows\System32\msi.dll', 'C:\Windows\SysWOW64\msi.dll' -ErrorAction SilentlyContinue | Select-Object FullName, Length, LastWriteTime | Format-Table -AutoSize
+
+      - name: Build minimal MSI with ICE validation
+        shell: pwsh
+        run: |
+          $root = Join-Path $env:RUNNER_TEMP 'wixprobe'
+          New-Item -ItemType Directory -Force $root | Out-Null
+          $zip = Join-Path $root 'wix314.zip'
+          Invoke-WebRequest -Uri 'https://github.com/wixtoolset/wix3/releases/download/wix3141rtm/wix314-binaries.zip' -OutFile $zip -UseBasicParsing
+          Expand-Archive -Path $zip -DestinationPath (Join-Path $root 'tools') -Force
+          Set-Content -LiteralPath (Join-Path $root 'probe.txt') -Value 'probe' -Encoding ascii
+          @'
+          <?xml version="1.0" encoding="utf-8"?>
+          <Wix xmlns="http://schemas.microsoft.com/wix/2006/wi">
+            <Product Id="*" Name="WixProbe" Language="1033" Version="1.0.0.0" Manufacturer="Probe" UpgradeCode="9C7A2F3B-2C1E-4B39-9E7D-0E2B1B4E5F60">
+              <Package InstallerVersion="500" Compressed="yes" InstallScope="perMachine" />
+              <MediaTemplate EmbedCab="yes" />
+              <Directory Id="TARGETDIR" Name="SourceDir">
+                <Directory Id="ProgramFilesFolder">
+                  <Directory Id="INSTALLDIR" Name="WixProbe">
+                    <Component Id="MainComponent" Guid="*">
+                      <File Id="ProbeFile" Source="probe.txt" KeyPath="yes" />
+                    </Component>
+                  </Directory>
+                </Directory>
+              </Directory>
+              <Feature Id="MainFeature" Title="WixProbe" Level="1">
+                <ComponentRef Id="MainComponent" />
+              </Feature>
+            </Product>
+          </Wix>
+          '@ | Set-Content -LiteralPath (Join-Path $root 'probe.wxs') -Encoding utf8
+          Push-Location $root
+          & '.\tools\candle.exe' -nologo probe.wxs
+          Write-Host "candle exit=$LASTEXITCODE"
+          $lightOut = & '.\tools\light.exe' -nologo -o probe.msi probe.wixobj 2>&1
+          Write-Host "light (ICE on) exit=$LASTEXITCODE"
+          Write-Host "--- light output ---"
+          $lightOut | ForEach-Object { Write-Host $_ }
+          $lightOut2 = & '.\tools\light.exe' -nologo -sval -o probe-noval.msi probe.wixobj 2>&1
+          Write-Host "light (-sval) exit=$LASTEXITCODE"
+          Write-Host "--- light -sval output ---"
+          $lightOut2 | ForEach-Object { Write-Host $_ }
+          Get-ChildItem $root -Filter '*.msi' | Select-Object Name, Length | Format-Table -AutoSize
+          Pop-Location
