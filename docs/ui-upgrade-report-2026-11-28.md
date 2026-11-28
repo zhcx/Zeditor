@@ -2,8 +2,6 @@
 
 日期：2026-11-28
 
-分支：`feature/textus-writing-workflow`
-
 基础提交：`da8d4c0`
 
 状态：代码、测试、截图和 Windows 安装包已完成；本轮修改尚未提交或推送。
