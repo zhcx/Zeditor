@@ -123,7 +123,8 @@ test('Windows release workflow reserves both SignPath signing stages', () => {
   const windowsJob = workflow.slice(workflow.indexOf('  build-windows:'))
 
   assert.match(windowsJob, /runs-on: windows-2022/)
-  assert.match(windowsJob, /Verify VBSCRIPT for WiX MSI builds/)
+  assert.match(windowsJob, /Verify VBScript engine for WiX MSI builds/)
+  assert.match(windowsJob, /cscript\.exe/)
   assert.match(windowsJob, /Get-WindowsOptionalFeature[^\n]*VBSCRIPT/)
   assert.match(workflow, /tauri build.*--no-bundle/i)
   assert.match(workflow, /tauri bundle/i)

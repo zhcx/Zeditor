@@ -282,7 +282,9 @@ jobs:
     name: Windows x64 — two-stage signing
     needs: prepare-release
     if: ${{ github.event_name == 'push' || github.event.inputs.platforms == '' || github.event.inputs.platforms == 'all' || github.event.inputs.platforms == 'windows' }}
-    # WiX light.exe 依赖 VBSCRIPT；Windows 2025 runner 已不再默认提供该可选功能。
+    # windows-latest 已切到 Windows Server 2025 镜像（20261123 起移除 VBSCRIPT），
+    # 而 WiX 3 的 light.exe 做 ICE 校验必须能执行 VBScript，否则报 LGHT0217。
+    # 这里固定 Server 2022（VBScript 内置），并由下一步做真实可用性探测。
     runs-on: windows-2022
     env:
       WINDOWS_TARGET: x86_64-pc-windows-msvc
@@ -317,14 +319,40 @@ jobs:
       - name: Install frontend dependencies
         run: npm ci
 
-      - name: Verify VBSCRIPT for WiX MSI builds
+      # WiX 3 的 light.exe 在 ICE 校验时通过 Windows Script Host 执行 VBScript，
+      # 引擎缺失或未注册会报 LGHT0217（脚本引擎注册不正确）。
+      # VBSCRIPT 在 Server 2022 上是内置组件、在 Server 2025 上是可选功能，
+      # 所以这里不查功能名，而是直接跑一段 VBScript 做真实可用性探测。
+      - name: Verify VBScript engine for WiX MSI builds
         shell: pwsh
         run: |
-          $feature = Get-WindowsOptionalFeature -Online -FeatureName VBSCRIPT
-          if ($feature.State -ne 'Enabled') {
-            throw "WiX MSI builds require the VBSCRIPT optional feature (current state: $($feature.State))."
+          $os = Get-CimInstance Win32_OperatingSystem
+          Write-Host "Runner OS: $($os.Caption) $($os.Version)"
+
+          $feature = $null
+          try {
+            $feature = Get-WindowsOptionalFeature -Online -FeatureName VBSCRIPT -ErrorAction Stop
           }
-          Write-Host "VBSCRIPT is enabled."
+          catch {
+            Write-Host "VBSCRIPT optional feature query unavailable: $($_.Exception.Message)"
+          }
+          if ($feature) {
+            Write-Host "VBSCRIPT optional feature state: $($feature.State)"
+            if ($feature.State -ne 'Enabled') {
+              throw "WiX light.exe needs the VBSCRIPT optional feature, but it is $($feature.State)."
+            }
+          }
+          else {
+            Write-Host "VBSCRIPT is not exposed as an optional feature on this OS (built-in on Server 2022)."
+          }
+
+          $probe = Join-Path $env:RUNNER_TEMP 'wix-vbscript-probe.vbs'
+          Set-Content -LiteralPath $probe -Value 'WScript.Echo "vbscript-ok"' -Encoding ascii
+          $output = & "$env:SystemRoot\System32\cscript.exe" //nologo //E:vbscript $probe 2>&1
+          if ($LASTEXITCODE -ne 0 -or -not ($output -match 'vbscript-ok')) {
+            throw "Windows Script Host cannot run VBScript, so WiX light.exe ICE validation would fail (LGHT0217). Output: $output"
+          }
+          Write-Host "VBScript engine is available."
 
       - name: Detect SignPath configuration
         id: signpath
